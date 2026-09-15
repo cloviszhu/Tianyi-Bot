@@ -58,6 +58,10 @@ class WxAutoAdapter:
         self._ready = False
         self._guard = None
 
+    def _before_input(self):
+        if self._guard is not None:
+            self._guard()
+
     def _check_chat(self, chat) -> str:
         info = chat.ChatInfo()
         name = info.get("chat_name")
@@ -139,8 +143,10 @@ class WxAutoAdapter:
         from wxauto4.utils.win32 import ReadClipboardData, SetClipboardText
 
         with LockManager.acquire():
+            self._before_input()
             if not message.roll_into_view():
                 raise AdapterError("Image is no longer visible")
+            self._before_input()
             message.click()
             preview = WeChatImage(message)
             if not preview.control or not preview.control.Exists(0):
@@ -148,12 +154,16 @@ class WxAutoAdapter:
             try:
                 if preview.type != "image":
                     raise AdapterError("Not an image preview")
+                self._before_input()
                 SetClipboardText("")
+                self._before_input()
                 preview.tools["更多"].Click()
+                self._before_input()
                 if not Menu(preview.root).select("复制"):
                     raise AdapterError("Copy image failed")
                 deadline = time.monotonic() + 10
                 while time.monotonic() < deadline:
+                    self._before_input()
                     files = ReadClipboardData().get("15", [])
                     if files:
                         source = Path(files[0])
@@ -168,6 +178,7 @@ class WxAutoAdapter:
                     time.sleep(0.1)
                 raise AdapterError("Copy image timed out")
             finally:
+                self._before_input()
                 preview.control.SendKeys("{Esc}")
 
     def run(self, handler: Callable[[MessageEvent], None], *, stop_event=None, hwnd=None, guard=None, on_ready=None) -> None:
@@ -177,6 +188,7 @@ class WxAutoAdapter:
         listening_started = False
         self._guard = guard
         try:
+            self._before_input()
             with tempfile.TemporaryDirectory(prefix="session-", dir=self.download_root) as session:
                 self.download_root = Path(session)
                 package = importlib.import_module("wxauto4")

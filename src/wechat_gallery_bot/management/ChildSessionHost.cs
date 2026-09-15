@@ -177,7 +177,7 @@ class TrialForm : Form {
     long heartbeatTicks;
 
     public TrialForm() {
-        Text = "天意Bot 0.6.3 · 分身控制器"; Size = new Size(770,460);
+        Text = "天意Bot 0.6.11 · 分身控制器"; Size = new Size(770,460);
         string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"TianyiBotSessionTrial");
         Directory.CreateDirectory(folder); journal = Path.Combine(folder,"recovery.txt");
         lease = new FileStream(Path.Combine(folder,"trial.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);
@@ -205,6 +205,11 @@ class TrialForm : Form {
     }
     void Record(string phase) {
         string text="phase="+phase+"\noriginal_enabled="+originalEnabled+"\noriginal_service_stopped="+originalServiceStopped+"\nowned_session="+(owned.HasValue?owned.Value.ToString():"unknown")+"\n";
+        // Publish only after checking the actual client settings, never a GUI checkbox.
+        if(phase=="connected" && rdp!=null && rdp.Connected==1) {
+            rdp.ValidatePrepared();
+            text+="input_isolation=verified-v1\n";
+        }
         text+="published_unix="+(DateTime.UtcNow-new DateTime(1970,1,1,0,0,0,DateTimeKind.Utc)).TotalSeconds.ToString("R",System.Globalization.CultureInfo.InvariantCulture)+"\n";
         using(var process=System.Diagnostics.Process.GetCurrentProcess()) {
             text+="parent_session="+process.SessionId+"\nparent_pid="+process.Id+"\nparent_started="+(process.StartTime.ToUniversalTime()-new DateTime(1970,1,1,0,0,0,DateTimeKind.Utc)).TotalSeconds.ToString("R",System.Globalization.CultureInfo.InvariantCulture)+"\n";

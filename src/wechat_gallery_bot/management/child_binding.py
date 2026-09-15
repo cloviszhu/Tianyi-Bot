@@ -38,7 +38,7 @@ def validate_context(record, current, console, now=None):
         raise ManagementError("请在已连接的分身内打开此入口；主机或未知会话禁止连接微信。") from None
 
 
-def require_child_context():
+def require_child_context(*, input_enabled=False):
     stage = "读取连接记录"
     try:
         path = Path(os.environ["LOCALAPPDATA"]) / "TianyiBotSessionTrial/recovery.txt"
@@ -48,6 +48,8 @@ def require_child_context():
         if any(len(pair) != 2 for pair in pairs) or len(dict(pairs)) != len(pairs):
             raise ValueError()
         record = dict(pairs)
+        if input_enabled and record.get("input_isolation") != "verified-v1":
+            raise ManagementError("控制器尚未发布输入隔离检查结果，请正常结束分身后使用新版控制器。")
         stage = "检查主机发布状态（需要0.6.3控制器）"
         if "published_unix" not in record:
             raise ValueError()

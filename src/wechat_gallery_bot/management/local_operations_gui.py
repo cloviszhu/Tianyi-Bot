@@ -20,6 +20,8 @@ class LocalOperationsWindow:
     def __init__(self, root, binding_getter, workspace=None, trial_lock=None, child_mode=False):
         self.root, self.binding_getter = root, binding_getter
         self.child_mode = child_mode
+        from .child_intake import IntakeProcess
+        self.intake = IntakeProcess()
         self.listening = False
         self.listen_generation = 0
         self.workspace = workspace or LocalWorkspace(Path.home() / ".tianyi-bot" / "local-workspace")
@@ -30,15 +32,15 @@ class LocalOperationsWindow:
         self.results = queue.Queue()
         self.timers = set()
         self.rows, self.photo = {}, None
-        root.title("天意Bot 0.6.10 · 群监听与图库" if child_mode else "天意Bot · 本机图库与后台能力")
+        root.title("天意Bot 0.6.11 · 群监听与图库" if child_mode else "天意Bot · 本机图库与后台能力")
         root.geometry("960x850")
         root.minsize(960, 850)
         root.protocol("WM_DELETE_WINDOW", self.close)
         frame = ttk.Frame(root, padding=20)
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="本机图库与运行控制", font=("Microsoft YaHei UI", 18, "bold")).pack(anchor="w")
-        ttk.Label(frame, text="硬约束：机器人全程后台，不占鼠标、不抢焦点、不模拟按键。", foreground="#176b68").pack(anchor="w", pady=8)
-        ttk.Label(frame, text=BACKGROUND_BLOCKER, wraplength=900, foreground="#9b6500").pack(anchor="w", pady=8)
+        ttk.Label(frame, text="分身内允许自动点击、按键和剪贴板操作；主Windows不参与。" if child_mode else "硬约束：机器人全程后台，不占鼠标、不抢焦点、不模拟按键。", foreground="#176b68").pack(anchor="w", pady=8)
+        ttk.Label(frame, text="分身自动接收为兼容性试运行，真实群发送仍禁用；隐藏后运行和主机输入隔离尚待实测。" if child_mode else BACKGROUND_BLOCKER, wraplength=900, foreground="#9b6500").pack(anchor="w", pady=8)
         self.note = tk.StringVar(root, "可保存配置、查看图库和运行离线演示。离线演示不会连接绑定的小号。")
         ttk.Label(frame, textvariable=self.note, wraplength=900).pack(anchor="w", pady=8)
         self.binding_note = tk.StringVar(root)
@@ -107,6 +109,12 @@ class LocalOperationsWindow:
                 widget.pack_forget()
         self.live_button = ttk.Button(config, text="启动真实机器人：后台能力未验证", state="disabled")
         self.live_button.pack(anchor="w", pady=6)
+        if child_mode:
+            self.live_button.pack_forget()
+            ttk.Button(config, text="启动自动接收入库（分身内操作，不发送）", command=self.start_intake).pack(anchor="w", pady=4)
+            ttk.Button(config, text="停止自动接收", command=self.intake.stop).pack(anchor="w", pady=4)
+            self.intake_note = tk.StringVar(root, self.intake.message)
+            ttk.Label(config, textvariable=self.intake_note, wraplength=860).pack(anchor="w")
         ttk.Separator(config).pack(fill="x", pady=12)
         ttk.Label(config, text="离线演示：独立数据目录，与真实图库完全分开").pack(anchor="w")
         actions = ttk.Frame(config)
@@ -119,7 +127,7 @@ class LocalOperationsWindow:
         self.stop_button.pack(side="left")
         self.demo_note = tk.StringVar(root)
         ttk.Label(config, textvariable=self.demo_note).pack(anchor="w", pady=6)
-        ttk.Label(config, text="关闭此控制窗口会停止离线演示。当前没有后台运行的真实机器人。", wraplength=850).pack(anchor="w")
+        ttk.Label(config, text="关闭此GUI会停止自动接收及离线演示；隐藏分身画面不等于关闭GUI。" if child_mode else "关闭此控制窗口会停止离线演示。当前没有后台运行的真实机器人。", wraplength=850).pack(anchor="w")
         self.dataset = ttk.Combobox(gallery, state="readonly", values=["本机图库", "离线演示图库"])
         self.dataset.current(0)
         self.dataset.pack(anchor="w")
@@ -145,8 +153,24 @@ class LocalOperationsWindow:
         self.schedule(80, self.drain)
         self.schedule(250, self.poll)
 
+    def start_intake(self):
+        if not self.child_mode or self.busy or self.intake.active:
+            return
+        window = self.binding_getter()
+        if window is None:
+            self.note.set("请先连接分身内唯一微信。")
+            return
+        self.stop_listening()
+        self.stop_vision()
+        groups = [s.strip() for s in self.groups.get("1.0", "end").splitlines() if s.strip()]
+        seconds, size = self.timeout.get(), self.limit.get()
+        def start():
+            self.workspace.configure(groups, seconds, size)
+            self.intake.start(window, self.workspace.local.root, dict(self.workspace.local.settings))
+        self.submit(start, lambda _: self.note.set("自动接收试运行已请求；不会回复群消息。分身内微信请交给机器人操作，主机可正常使用。"))
+
     def start_vision(self):
-        if self.busy or self.vision_active or not self.child_mode:
+        if self.busy or self.vision_active or not self.child_mode or self.intake.active:
             return
         groups = [s.strip() for s in self.groups.get("1.0", "end").splitlines() if s.strip()]
         window = self.binding_getter()
@@ -221,6 +245,9 @@ class LocalOperationsWindow:
         self.submit(read, done)
 
     def process_recognized(self):
+        if self.intake.active:
+            self.gallery_action_note.set("自动接收运行中，请停止后再手动处理识别结果。")
+            return
         if self.busy:
             self.gallery_action_note.set("正在完成当前帧，请稍后处理。")
             return
@@ -298,7 +325,9 @@ class LocalOperationsWindow:
         if self.closed:
             return
         window = self.binding_getter()
-        self.binding_note.set(("已连接分身微信；收发未启用" if self.child_mode else f"当前人工绑定：窗口 {window.hwnd:#x} / 进程 {window.pid}，未授权真实收发") if window else "没有有效绑定；可继续使用本机配置与离线演示。")
+        if self.child_mode:
+            self.intake_note.set(self.intake.poll(window))
+        self.binding_note.set(("已连接分身微信；群发送禁用" if self.child_mode else f"当前人工绑定：窗口 {window.hwnd:#x} / 进程 {window.pid}，未授权真实收发") if window else "没有有效绑定；可继续使用本机配置与离线演示。")
         stats = self.workspace.status()
         label = {"stopped": "已停止", "starting": "正在启动", "running": "运行中", "stopping": "正在停止", "error": "异常"}.get(stats["demo"], "未知")
         self.demo_note.set(f"离线状态：{label} · 已处理 {stats['events']} 条模拟事件 · 模拟文字 {stats['text_replies']} / 图片 {stats['image_replies']}" + (" · " + stats["error"] if stats["error"] else ""))
@@ -313,7 +342,7 @@ class LocalOperationsWindow:
         self.schedule(500, self.poll)
 
     def save(self):
-        if self.listening:
+        if self.listening or self.intake.active:
             self.note.set("请先停止监听再修改配置。")
             return
         groups = [s.strip() for s in self.groups.get("1.0", "end").splitlines() if s.strip()]
@@ -321,7 +350,7 @@ class LocalOperationsWindow:
         self.submit(lambda: self.workspace.configure(groups, seconds, size), lambda _: self.note.set("本机配置已保存；未启动或授权真实收发。"))
 
     def start_listening(self):
-        if self.busy or self.listening or not self.child_mode:
+        if self.busy or self.listening or not self.child_mode or self.intake.active:
             return
         if getattr(self, "vision_active", False):
             self.stop_vision()
@@ -485,6 +514,11 @@ class LocalOperationsWindow:
 
     def close(self):
         if self.closed:
+            return
+        if self.intake.active:
+            self.intake.stop()
+            self.intake.poll(self.binding_getter())
+            self.schedule(100, self.close)
             return
         if self.listening:
             self.stop_listening()
