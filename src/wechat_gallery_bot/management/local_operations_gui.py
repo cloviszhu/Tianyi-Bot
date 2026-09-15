@@ -32,7 +32,7 @@ class LocalOperationsWindow:
         self.results = queue.Queue()
         self.timers = set()
         self.rows, self.photo = {}, None
-        root.title("天意Bot 0.6.11 · 群监听与图库" if child_mode else "天意Bot · 本机图库与后台能力")
+        root.title("天意Bot 0.6.12 · 群监听与图库" if child_mode else "天意Bot · 本机图库与后台能力")
         root.geometry("960x850")
         root.minsize(960, 850)
         root.protocol("WM_DELETE_WINDOW", self.close)
@@ -40,7 +40,7 @@ class LocalOperationsWindow:
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="本机图库与运行控制", font=("Microsoft YaHei UI", 18, "bold")).pack(anchor="w")
         ttk.Label(frame, text="分身内允许自动点击、按键和剪贴板操作；主Windows不参与。" if child_mode else "硬约束：机器人全程后台，不占鼠标、不抢焦点、不模拟按键。", foreground="#176b68").pack(anchor="w", pady=8)
-        ttk.Label(frame, text="分身自动接收为兼容性试运行，真实群发送仍禁用；隐藏后运行和主机输入隔离尚待实测。" if child_mode else BACKGROUND_BLOCKER, wraplength=900, foreground="#9b6500").pack(anchor="w", pady=8)
+        ttk.Label(frame, text="默认不发送；启用收发需本轮明确授权。微信兼容性、隐藏后运行和主机输入隔离尚待实测。" if child_mode else BACKGROUND_BLOCKER, wraplength=900, foreground="#9b6500").pack(anchor="w", pady=8)
         self.note = tk.StringVar(root, "可保存配置、查看图库和运行离线演示。离线演示不会连接绑定的小号。")
         ttk.Label(frame, textvariable=self.note, wraplength=900).pack(anchor="w", pady=8)
         self.binding_note = tk.StringVar(root)
@@ -111,7 +111,10 @@ class LocalOperationsWindow:
         self.live_button.pack(anchor="w", pady=6)
         if child_mode:
             self.live_button.pack_forget()
+            self.send_confirmed = tk.BooleanVar(root, False)
+            ttk.Checkbutton(config, text="本轮允许在以上配置群发送文字及图片（下次启动需重新授权）", variable=self.send_confirmed).pack(anchor="w")
             ttk.Button(config, text="启动自动接收入库（分身内操作，不发送）", command=self.start_intake).pack(anchor="w", pady=4)
+            ttk.Button(config, text="启动群收发机器人（需本轮授权）", command=lambda: self.start_intake(send=True)).pack(anchor="w", pady=4)
             ttk.Button(config, text="停止自动接收", command=self.intake.stop).pack(anchor="w", pady=4)
             self.intake_note = tk.StringVar(root, self.intake.message)
             ttk.Label(config, textvariable=self.intake_note, wraplength=860).pack(anchor="w")
@@ -153,7 +156,7 @@ class LocalOperationsWindow:
         self.schedule(80, self.drain)
         self.schedule(250, self.poll)
 
-    def start_intake(self):
+    def start_intake(self, *, send=False):
         if not self.child_mode or self.busy or self.intake.active:
             return
         window = self.binding_getter()
@@ -163,11 +166,18 @@ class LocalOperationsWindow:
         self.stop_listening()
         self.stop_vision()
         groups = [s.strip() for s in self.groups.get("1.0", "end").splitlines() if s.strip()]
+        if send:
+            if not self.send_confirmed.get() or not groups:
+                self.note.set("请填写测试群，并明确勾选本轮文字和图片发送授权。")
+                return
+            if not messagebox.askyesno("确认本轮真实群收发", "机器人将在分身内以下群读取指令、下载原图、发送文字及图片：\n\n" + "\n".join(groups) + "\n\n微信兼容性仍需实测；确认开始？", parent=self.root):
+                return
+        self.send_confirmed.set(False)
         seconds, size = self.timeout.get(), self.limit.get()
         def start():
             self.workspace.configure(groups, seconds, size)
-            self.intake.start(window, self.workspace.local.root, dict(self.workspace.local.settings))
-        self.submit(start, lambda _: self.note.set("自动接收试运行已请求；不会回复群消息。分身内微信请交给机器人操作，主机可正常使用。"))
+            self.intake.start(window, self.workspace.local.root, dict(self.workspace.local.settings), send_confirmed=send)
+        self.submit(start, lambda _: self.note.set("本轮群收发启动已请求；分身内微信请交给机器人操作。" if send else "自动接收试运行已请求；不会回复群消息。分身内微信请交给机器人操作，主机可正常使用。"))
 
     def start_vision(self):
         if self.busy or self.vision_active or not self.child_mode or self.intake.active:
@@ -327,7 +337,7 @@ class LocalOperationsWindow:
         window = self.binding_getter()
         if self.child_mode:
             self.intake_note.set(self.intake.poll(window))
-        self.binding_note.set(("已连接分身微信；群发送禁用" if self.child_mode else f"当前人工绑定：窗口 {window.hwnd:#x} / 进程 {window.pid}，未授权真实收发") if window else "没有有效绑定；可继续使用本机配置与离线演示。")
+        self.binding_note.set(("已连接分身微信；收发模式见下方运行状态" if self.child_mode else f"当前人工绑定：窗口 {window.hwnd:#x} / 进程 {window.pid}，未授权真实收发") if window else "没有有效绑定；可继续使用本机配置与离线演示。")
         stats = self.workspace.status()
         label = {"stopped": "已停止", "starting": "正在启动", "running": "运行中", "stopping": "正在停止", "error": "异常"}.get(stats["demo"], "未知")
         self.demo_note.set(f"离线状态：{label} · 已处理 {stats['events']} 条模拟事件 · 模拟文字 {stats['text_replies']} / 图片 {stats['image_replies']}" + (" · " + stats["error"] if stats["error"] else ""))

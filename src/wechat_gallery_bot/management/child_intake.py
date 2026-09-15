@@ -26,13 +26,14 @@ class IntakeProcess:
     def active(self):
         return self.process is not None and self.process.poll() is None
 
-    def start(self, window, root, settings):
+    def start(self, window, root, settings, *, send_confirmed=False):
         if self.active:
             raise ManagementError("请先停止上一轮自动接收。")
         executable = Path(sys.executable)
         if executable.name.lower() == "pythonw.exe":
             executable = executable.with_name("python.exe")
-        payload = {"window": asdict(window), "root": str(root), "settings": settings}
+        payload = {"window": asdict(window), "root": str(root), "settings": settings,
+                   "send_confirmed": send_confirmed is True}
         process = subprocess.Popen([str(executable), "-m", __name__, "--worker"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             text=True, encoding="utf-8", creationflags=subprocess.CREATE_NO_WINDOW)
@@ -55,17 +56,17 @@ class IntakeProcess:
                     state = data.get("state")
                     if state == "ready":
                         self.ready = True
-                        self.message = "自动接收已启动：收到加图指令后尝试读取原图入库；所有群回复均禁用。"
+                        self.message = "机器人已启动：本轮已授权配置群收发。" if send_confirmed is True else "自动接收已启动：收到加图指令后尝试读取原图入库；所有群回复均禁用。"
                     elif state == "checked":
                         self.checked_at = time.monotonic()
                     elif state == "handled":
-                        self.message = "已交给图库处理 %d 条事件；入库结果请查看图库，不代表发送成功。" % int(data["count"])
+                        self.message = "已交给图库处理 %d 条事件；%s；不代表全部处理成功。" % (int(data["count"]), "本轮允许群收发" if send_confirmed is True else "群发送禁用")
                     elif state == "error":
                         self.terminal = True
-                        self.message = "自动接收失败：隔离检查、窗口或免费库兼容性未通过。未发送；不自动重试。"
+                        self.message = "运行失败：隔离检查、窗口或免费库兼容性未通过；不自动重试，收发结果需核对。"
                     elif state == "stopped":
                         self.terminal = True
-                        self.message = "自动接收已停止；未发送。"
+                        self.message = "机器人已停止；本轮发送授权已结束。" if send_confirmed is True else "自动接收已停止；未发送。"
             except (ValueError, OSError, KeyError):
                 if process is self.process:
                     self.stop()
@@ -162,7 +163,8 @@ def worker():
                 if now - last_check[0] >= 1:
                     last_check[0] = now
                     emit("checked")
-            adapter.run(handle, window=window, stop_event=stop, on_ready=lambda: emit("ready"), on_checked=checked)
+            adapter.run(handle, window=window, stop_event=stop, on_ready=lambda: emit("ready"), on_checked=checked,
+                        send_groups=config.groups if data.get("send_confirmed") is True else ())
         emit("stopped")
     except Exception:
         emit("error")

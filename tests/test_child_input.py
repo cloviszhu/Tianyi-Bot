@@ -85,6 +85,44 @@ class ChildInputTests(unittest.TestCase):
             with self.assertRaises(AdapterError):
                 adapter._before_input()
 
+    def test_authorized_group_sends_and_guard_loss_blocks(self):
+        with tempfile.TemporaryDirectory() as root:
+            adapter = ChildWxAutoAdapter(("group",), Path(root))
+            adapter._guard = self.guard
+            adapter._ready = True
+            adapter._send_groups = frozenset({"group"})
+            chat = SimpleNamespace(who="group", ChatInfo=lambda: {"chat_type": "group", "chat_name": "group"},
+                                   SendMsg=Mock(return_value=True), SendFiles=Mock(return_value=True))
+            adapter._active = (SimpleNamespace(chat_key="group"), None, chat)
+            adapter.send_text("group", "local mock only")
+            adapter.send_image("group", Path(root) / "image.png")
+            chat.SendMsg.assert_called_once()
+            chat.SendFiles.assert_called_once()
+            with self.assertRaises(AdapterError):
+                adapter.send_text("other", "no")
+            self.stop.set()
+            with self.assertRaises(ManagementError):
+                adapter.send_text("group", "no")
+            chat.SendMsg.assert_called_once()
+
+    def test_send_grant_is_revoked_on_run_failure(self):
+        with tempfile.TemporaryDirectory() as root:
+            adapter = ChildWxAutoAdapter(("group",), Path(root))
+            def fail(*args, **kwargs):
+                self.assertEqual(adapter._send_groups, frozenset({"group"}))
+                raise AdapterError("mock connection failure")
+            with patch("wechat_gallery_bot.adapters.wxauto_adapter.WxAutoAdapter.run", side_effect=fail):
+                with self.assertRaises(AdapterError):
+                    adapter.run(Mock(), window=self.window, stop_event=self.stop, send_groups=("group",))
+            self.assertEqual(adapter._send_groups, frozenset())
+
+    def test_unconfigured_send_group_rejected_before_guard(self):
+        with tempfile.TemporaryDirectory() as root:
+            adapter = ChildWxAutoAdapter(("group",), Path(root))
+            with self.assertRaises(AdapterError):
+                adapter.run(Mock(), window=self.window, stop_event=self.stop, send_groups=("other",))
+            self.context.assert_not_called()
+
 
 class IntakeSupervisorTests(unittest.TestCase):
     def running(self):
