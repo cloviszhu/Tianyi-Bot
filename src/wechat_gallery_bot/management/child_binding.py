@@ -82,6 +82,11 @@ def main():
         return
     root.deiconify()
     window = LocalBindingWindow(root, BindingService(ChildProvider()), child_mode=True)
+    from .child_control import attach_control
+    try:
+        attach_control(window)
+    except Exception:
+        window.status.set("本机管理通道未启动；分身界面仍可使用，未自动开启收发。")
     root.after(200, window.refresh)
     root.mainloop()
 

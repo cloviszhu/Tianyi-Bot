@@ -77,3 +77,10 @@ Python管理器通过系统Framework64 C#编译器构建小型WinForms/AxHost程
 
 参考：https://github.com/babalae/better-genshin-impact/tree/main/BetterGenshinImpact/Service/ChildSession
 https://learn.microsoft.com/en-us/windows/win32/termserv/child-sessions
+# 分身本机管理通道
+
+新版 child_binding 在确认当前为已连接且输入隔离有效的分身后启动 ChildControl。仅绑定 127.0.0.1 随机端口，每次启动生成随机 token，发现文件固定在用户 .tianyi-bot/child-control.json；文件不提交仓库。不改防火墙、不提权、不配置登录。这是同用户管理能力，不防恶意同用户进程。
+
+GET /status 提供当前 GUI 心跳、绑定/忙碌/工作进程/就绪/终止状态及简洁错误摘要；心跳超过三秒标记不新鲜。POST 仅允许 reconnect、start_receive、stop，空请求体、严格 Host、拒绝 Origin，不能指定群、路径、shell、发送授权或任意更新包。HTTP 线程只排队，GUI 主线程在重新检查分身上下文后消费；过期、重复在途请求拒绝。requested 不代表 ready，更不代表发送成功。
+
+固定调用端 python -m wechat_gallery_bot.management.child_control status|reconnect|start_receive|stop 直接连接 loopback，不使用代理。启动接收读取 GUI 当前群设置且始终 send=False。真实群发送仍只能由用户在分身 GUI 本轮确认。后续 worker 更新可利用停止后新建进程重新加载安装代码，但当前不提供运行中 GUI 热更新，也不接收远程安装/执行指令。

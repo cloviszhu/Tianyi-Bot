@@ -212,6 +212,8 @@ class LocalBindingWindow:
                 self.root.after(200, self.close)
                 return
         self.closed = True
+        if getattr(self, "child_control", None) is not None:
+            self.child_control.close()
         self.bound = None
         self.pending_done = None
         self.executor.shutdown(wait=False, cancel_futures=True)
