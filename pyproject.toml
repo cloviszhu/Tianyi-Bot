@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wechat-gallery-bot"
+version = "0.6.10"
+description = "Local deterministic WeChat group image library"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = ["Pillow>=12.3.0,<13"]
+
+[project.optional-dependencies]
+vision = ["rapidocr-onnxruntime==1.4.4", "opencv-python==5.0.0.93", "onnxruntime==1.30.0", "numpy==2.5.3"]
+management = ["cryptography>=43"]
+windows = ["uiautomation==2.0.29; sys_platform == 'win32'", "pywin32==312; sys_platform == 'win32'", "psutil==7.2.2; sys_platform == 'win32'"]
+wechat = ["wxauto4 @ git+https://github.com/FreeWisdom/wxauto-4.0.git@bd7c5233e79c0a185638a325bf6d30607244dfa8 ; sys_platform == 'win32'"]
+
+[project.scripts]
+tianyi-bot = "wechat_gallery_bot.__main__:main"
+
+[project.gui-scripts]
+tianyi-manager = "wechat_gallery_bot.management.gui:main"
+tianyi-guest = "wechat_gallery_bot.management.guest_gui:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"wechat_gallery_bot.management" = ["ChildSessionHost.cs", "ChildSessionHost.manifest"]

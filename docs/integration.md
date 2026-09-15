@@ -1,0 +1,225 @@
+# 微信接口核查
+
+## 最新：停止VM优先，清理下载并核查同机多开
+
+用户要求优先不用虚拟机，聚焦多开微信的窗口选择。本轮未启用主机真实后端，也未登录/监听/发送真实账号。旧VM/镜像“就绪”记录为历史，不再代表当前推荐方案或文件存在。
+
+已按明确路径直接删除5个可重新下载的介质：Win11_25H2_Chinese_Simplified_x64_v2.iso、VirtualBox-7.2.16-174877-Win.exe、解压目录内common.cab与amd64/arm64两个MSI；合计8,898,465,106字节（8.29GiB），复查目标全部不存在。未进回收站，需从官方重新下载恢复。保留小型校验元数据/安装日志、项目代码、图库和Python运行环境。VirtualBox已安装本体及host-only网卡尚未卸载；下载清理不等同系统软件卸载。旧哈希证据只证明当时介质校验通过。
+
+固定源码核查：wx.py接受hwnd并交给WeChatMainWnd；ui/main.py的get_all_sub_wnds校验PID，但open_separate_window新建分支用群名构造WeChatSubWnd，其内部全局FindWindow；ui/component.py的Menu全局扫描并取首个匹配，WeChatImage未把pid传给find_window_from_root。只绑定主窗口/只验群名不足以防止多开串窗口。源码：[主/子窗口](https://github.com/FreeWisdom/wxauto-4.0/blob/bd7c5233e79c0a185638a325bf6d30607244dfa8/wxauto4/ui/main.py)、[菜单和预览](https://github.com/FreeWisdom/wxauto-4.0/blob/bd7c5233e79c0a185638a325bf6d30607244dfa8/wxauto4/ui/component.py)。
+
+候选方案：本机GUI手工点选并核对小号，绑定HWND/PID/进程创建时间；群窗、回调、预览、菜单全链路校验归属及唯一性，不确定就拒绝；同PID多主窗暂拒绝，不靠标题、启动顺序或昵称选账号。先实现仅识别/绑定、不读取消息或发送的验证阶段，再经明确授权试真实收发。锁屏、同进程换号与焦点/剪贴板竞争仍有限制，主机4.1.13.12兼容性未证实，不自动降级或使用多开破解工具。
+
+## 官方Windows镜像下载授权
+
+用户对“授权下载官方镜像、许可由你确认”答复“授权”。本轮仅下载微软官方Windows11 25H2简体中文x64多版本ISO并核对官方SHA256；不代表已获得Windows许可，不购买/激活，不安装系统、不改主机启动项，不进行真实账号收发。下载落在项目外的用户专用安装目录，项目保持开放。
+
+下载已完成：`C:\Users\zhu06\.tianyi-bot\installers\Win11_25H2_Chinese_Simplified_x64_v2.iso`，8,543,608,832字节（约7.96GiB）。由[微软官方ISO页面](https://www.microsoft.com/en-us/software-download/windows11)选择x64多版本、Chinese Simplified获得微软下载域名`software.download.prss.microsoft.com`的链接；未用第三方镜像。实际SHA256与该页简体中文64位校验值完全一致：`7408581E67BC455EBAAFB9230E531ABF45B1C8864A22114A1B03893F897102E4`。校验后才将.partial改名为.iso。没有挂载/运行setup、创建VM或接受安装许可；后续需用户确认用于虚拟机的Windows许可。旁边windows-iso-source.json保存来源和预期校验值，不包含临时签名下载URL。
+
+## 系统部署授权记录（2026-09-14，纽约）
+
+用户对上一轮明确问题“安装VirtualBox基础包并按手册配置隔离网络，Windows镜像与许可仍由你确认”答复“准”。本次授权仅用于该系统部署，不是最终交付验收，不授权Windows镜像/许可购买、主机微信改动、安全设置降低、自动登录或真实账号收发。项目不关闭归档。
+
+本轮复查：无已启用hypervisor，192.168.56.0/24未占用，空闲内存约4.47GiB；当前执行进程非管理员。官方7.2系列当前下载为7.2.16-174877，VC++ x64运行库已安装。计划仅安装VBoxApplication和VBoxNetworkAdp（host-only），省略桥接、USB与Python绑定组件；禁用安装后自动启动/重启。安装前核验官方SHA256及Oracle数字签名。若系统要求提权，由用户在Windows UAC中确认，不绕过。
+
+### 已执行结果
+
+- Oracle官方7.2.16-174877 Windows安装包SHA256：`9383a42bffa5c0ac4bc5f1c7d820478d84380d3a17b65aa9b43e6778cbdb615a`，与官方下载清单一致；EXE及amd64 MSI签名均Valid、Oracle America, Inc.。
+- 通过系统正常提权安装，MSI退出0，未要求重启且未重启。`VBoxManage --version`实际返回`7.2.16r174877`；VBoxSup和VBoxNetAdp驱动Running。
+- 日志确认仅主程序/host-only网络被安装，USB、桥接过滤驱动、Python绑定未安装，Extension Packs=0。没有向信任库手动导入证书或降低系统安全设置。
+- 安装器新建host-only适配器`VirtualBox Host-Only Ethernet Adapter`，GUID `9bb68b2b-756f-4cea-8a29-c5d480065cd4`，主机界面“以太网”，IPv4 `192.168.56.1/24`。已关闭其新建DHCP服务器，复读Enabled=No。主机WLAN仍为`10.0.0.115/24`，无VirtualBox桥接绑定。
+- 安装文件/日志留在`C:\Users\zhu06\.tianyi-bot\installers`便于核查。没有创建/启动VM，没有获取Windows镜像，没有配置guest网卡/guest防火墙；这些等待Windows镜像及许可确认。未更改主机微信、自动登录、电源/锁屏或主机入站防火墙。
+- 本阶段仅证明宿主VirtualBox和host-only网络安装成功，不证明虚拟机可启动或微信可运行。下方“未安装”属于部署前历史评估，以本段为当前状态。
+
+本阶段回退（仅需要回退时执行）：先确认该新host-only网络未被后续VM使用，再通过VirtualBox网络管理器删除上述特定适配器/对应DHCP配置；通过Windows已安装应用卸载Oracle VirtualBox。不会自动删除VM磁盘、项目或图库。没有要求现在回退。
+
+核查日期：2026-09-14（纽约时间）。未连接真实账号；以下是文档/源码核查，不是实机收发证据。
+
+## 选择
+
+用户追加要求优先考虑免费 FreeWisdom/wxauto-4.0。采用其 main 当时的提交 `bd7c5233e79c0a185638a325bf6d30607244dfa8`，包名 wxauto4，版本40.1.1，Python >=3.9,<3.14。实际项目限3.11～3.13。
+
+[固定仓库](https://github.com/FreeWisdom/wxauto-4.0/tree/bd7c5233e79c0a185638a325bf6d30607244dfa8) 的 README 仍声明微信4.0.5；本机注册表为4.1.13.12。兼容性未确认。没有因名字含4.x而推断兼容。
+
+初始也核对了官方 [安装](https://docs.wxauto.org/docs/install.html)、[WeChat](https://docs.wxauto.org/docs/class/WeChat.html)、[Chat](https://docs.wxauto.org/docs/class/Chat.html)、[Message](https://docs.wxauto.org/docs/class/Message.html) 文档，以及 PyPI wxautox4 41.1.1.post1 的 cp312 wheel（仅下载静态查看）。官方文档把监听列为Plus；其PyPI旧介绍仍写4.0.5，与现行文档不能混用。最终不依赖付费包。
+
+## 免费分支的实际映射
+
+| 能力 | 在固定源码确认的入口 | 本项目使用方式 |
+| --- | --- | --- |
+| 群监听 | wx.py: WeChat.AddListenChat(nickname, callback) | 每群注册一次；回调(msg, chat)，返回Chat或失败响应 |
+| 消息分类 | msgs/mtype.py type；msgs/mattr.py attr | 只收 friend 的 text/image；过滤self和系统消息 |
+| 发送者 | FriendMessage._resolve_sender / sender | 使用显示昵称；拒绝群名等兜底值，不猜测上一位发言人 |
+| 当前群 | Chat.who；Chat.ChatInfo() | 同时校验群名与chat_type=group，发消息前再次检查 |
+| 消息去重 | BaseMessage.id = control.runtimeid | 群名+UI ID；不以hash/content吞掉重复正文 |
+| 图片下载 | ImageMessage无download方法 | HumanMessage.roll_into_view/click，WeChatImage、Menu复制、ReadClipboardData读取文件 |
+| 发文字 | Chat.SendMsg(msg=...) | 原群子窗口发送，检查WxResponse真值 |
+| 发图 | Chat.SendFiles(filepath=...) | 发送图库本地绝对路径，检查返回真值 |
+| 生命周期 | KeepRunning / StopListening(remove=False) | 前台保持、停止监听线程后清理临时下载 |
+
+接口来源：[wx.py](https://github.com/FreeWisdom/wxauto-4.0/blob/bd7c5233e79c0a185638a325bf6d30607244dfa8/wxauto4/wx.py)、[消息基类](https://github.com/FreeWisdom/wxauto-4.0/blob/bd7c5233e79c0a185638a325bf6d30607244dfa8/wxauto4/msgs/base.py)、[消息类型](https://github.com/FreeWisdom/wxauto-4.0/blob/bd7c5233e79c0a185638a325bf6d30607244dfa8/wxauto4/msgs/mtype.py)、[发送者](https://github.com/FreeWisdom/wxauto-4.0/blob/bd7c5233e79c0a185638a325bf6d30607244dfa8/wxauto4/msgs/mattr.py)、[图片预览](https://github.com/FreeWisdom/wxauto-4.0/blob/bd7c5233e79c0a185638a325bf6d30607244dfa8/wxauto4/ui/component.py)。
+
+## 在适配器内限制副作用
+
+上游 `wx.py` 初始化及每轮监听调用 `delete_update_files`，会删除微信更新缓存。本项目在构造WeChat前替换该导入符号为空操作。没有运行上游构造器进行开发验证。
+
+上游 `WeChatImage.save` 可能删除零字节源文件，本项目不调用它。复用预览窗口“更多→复制”及剪贴板路径读取，限量读取并复制到专用临时目录；格式校验和SHA路径由核心负责，源文件只读。该路径依赖中文UI/Qt控件；新微信版本需实测。
+
+`WxParam.ENABLE_FILE_LOGGER=False`，禁用wxauto4命名日志，避免原库调试输出包含消息正文。`ENABLE_SENDER_OCR=False`：不启用发送者OCR兜底；不能识别身份的消息跳过。`LISTENER_EXCUTOR_WORKERS=1`：按上游提交顺序处理回调，避免加图命令和后续图片因多线程换序。
+
+依赖通过固定Git提交安装。`check_backend()`仅读取distribution/direct_url.json核对仓库与提交，不导入UI。所有平台相关类型只在适配器实际run/download时导入。
+
+## 后续真实验收（需明确授权后执行）
+
+选一个专用测试群，在当前客户端验证监听、发送者名称（尤其连续发图）、预览复制、文字和图片发送、Ctrl+C退出；测试A加图/B发图/A发图/B取图，再重启取图。发现不兼容时先记录失败控件/接口及版本，不自动降级微信。当前交付仅能证明离线核心与模拟接口合同通过。
+# 虚拟机与主机GUI实施手册
+
+本节为0.2扩展，优先于下文历史适配器说明。状态：本地代码/模拟测试，未安装VM、未连接真实账号。
+
+## 本机检查与选择
+
+2026-09-14实际检查：Windows11家庭中文版25H2 build26200；i7-14650HX、16核24线程、VT/SLAT已启用；总内存15.7GiB，当时空闲约3.5GiB；C空闲337GiB、D18.8GiB；未安装VirtualBox/VMware，hypervisor未启用。局域网10.0.0.0/24，检查时未发现192.168.56.0/24冲突。
+
+推荐VirtualBox7.2基础包：2vCPU、4096MB RAM、C盘64GiB动态虚拟磁盘。预算不是实测占用，宿主还有额外开销；先使主机空闲内存至少6GiB。16GB同时运行主号和Windows guest可能偏紧，若换页明显先减轻主机负载或扩内存，不承诺4GB guest的性能。不得使用不明“精简Windows”。
+
+| 方案 | 判断 |
+|---|---|
+| VirtualBox基础包 | 推荐，支持无界面运行、分离控制台、host-only；无需Extension Pack |
+| Hyper-V | 官方Windows桌面要求Pro/Enterprise，本机家庭版不满足；不绕过安装 |
+| VMware | 本机没有可复用安装，当前实现guest识别不支持，换用需小幅适配和重新验证 |
+| Windows Sandbox | 不采用非持久环境保管账号/图库，也不修改家庭版组件 |
+
+主机：Tkinter/ttk GUI、敏感连接文件。guest：小号微信、免费适配器、管理服务、SQLite和图片。管理服务运行在guest已登录的交互桌面，**不是Session0 Windows服务**。GUI关闭不影响guest进程。
+
+## 待批准的系统变更及恢复
+
+以下只是计划，均未执行：
+
+1. 从Oracle官方取得签名有效的VirtualBox7.2基础安装包；安装虚拟化/host-only网络驱动，可能短暂中断网络或重启。无需付费扩展。若要求关闭安全机制，停下重新评估，不自行关闭。
+2. 从[微软官方](https://www.microsoft.com/en-us/software-download/windows11)获取Windows11镜像，核对其官方校验值，使用你合法持有的许可。没有购买、下载不明旧版/精简镜像，也不绕过Windows要求。VM采用EFI和TPM2。
+3. 创建TianyiBot VM，按2CPU/4GiB/64GiB动态磁盘放C。网卡1=NAT联网，网卡2=host-only管理；不桥接、不端口转发。拟主机192.168.56.1/24、guest192.168.56.2/24，执行前再查冲突。host-only关闭DHCP或排除静态地址；该guest网卡无默认网关/DNS，NAT保留自动获取。
+4. 仅在guest新增一条TCP入站规则：本地192.168.56.2:8765、远程192.168.56.1，限定guest专用Python程序；所有防火墙配置文件均受这些范围限制。拒绝默认Python“所有网络/任意来源”放行。主机不新增入站规则。管理程序只绑定host-only IP；私有IP本身不能替代正确网络配置。
+5. 禁用双向剪贴板、拖放、USB透传，不设置常驻共享目录。配对文件通过你确认的受控介质或临时空共享目录传给主机；若需要Guest Additions驱动/共享文件夹，一并纳入审批，传完禁用并清理中转副本。绝不共享整个主机用户目录。
+6. 手工登录guest，不配置自动登录。运行需要guest解锁、不休眠；若现有策略自动锁定，机器人就停止。调整guest电源/锁屏策略需确认，主机策略不改。
+
+恢复：主机GUI停止机器人→guest停止管理服务→正常关闭VM。停机复制整个VM目录和数据作备份。仅撤销本次新增防火墙规则、临时共享、host-only连接；需要卸载则用正常卸载流程移除本次VirtualBox/Guest Additions，可能重启。保留虚拟磁盘与图库备份，不删除主机微信、其他网卡或系统配置。遇驱动冲突先停止，不降低安全设置。
+
+## 安装完成后的操作
+
+1. 主机按README一次性准备host-runtime；guest复制项目、安装Python3.12含Tk和Git，创建项目`.venv`并安装`.[wechat,management]`。正常使用双击各自VBS入口或Python环境Scripts内的桌面exe快捷方式，不用编辑.env。系统禁用VBScript时不改策略，使用exe入口。
+2. VirtualBox选TianyiBot→无界面启动→显示控制台。人工登录Windows及微信小号，处理扫码/弹窗。不要在此VM登录主号。
+3. guest双击“打开虚拟机服务.vbs”，确认host-only监听IP、允许主机IP、端口8765和数据目录，点启动管理服务。服务启动本身不会连接微信。导出敏感连接文件，受控传给主机。
+4. 主机双击“打开管理器.vbs”→导入连接文件→连接/刷新→重新连接微信。明确选择窗口，到控制台核对小号，填写人工备注、勾选确认绑定。**窗口标题不是账号名，备注不是自动账号识别。**
+5. 每行填一个完整且唯一群名，设置超时1～600秒、图片1～100MB，保存到guest。取得明确测试小号/群收发授权后才点启动，二次确认已保存的小号与群。配置变更会使旧的启动确认失效。
+6. 图库页刷新关键词/数量，选择关键词和图片编号查看缩略图。当前最多列500个图库，每图库浏览前200张，计数仍为总数；尚无删除/完整导出功能。
+7. 扫码/弹窗处理入口：主机GUI“打开虚拟机控制台入口”打开VirtualBox管理器，选择VM→显示。处理完选**分离**，不选关机/保存状态。GUI不承担完整远程桌面。
+8. 结束点击停止机器人，等已停止。换号必须先停止、换后重新连接并绑定；服务重启不保留绑定。关闭主机GUI不停止guest；guest服务窗口退出需确认停止。网络断开GUI显示未知，重连读真实状态，不重放启动/发送。
+
+免费库无法可靠读取当前账号ID。绑定检查窗口句柄、PID、进程创建时间及标题，属于防误选而非密码身份验证。窗口/进程消失取消绑定；**同进程换号不保证被发现，运行时禁止换号**。每次启动需人工再确认。真实后端拒绝在非VirtualBox机器启动，主机不导入UI运行时；原CLI直接run已停用。
+
+## 后台运行边界和证据
+
+| 场景 | 支持/限制 |
+|---|---|
+| 关闭主机GUI | guest继续；真实Tk关闭重开＋本机TLS模拟服务测试已通过 |
+| 最小化或分离VM控制台 | Oracle支持headless继续运行；预期保留guest桌面，但本机VM/微信渲染未实测，不保证收发 |
+| VM暂停、保存状态、关机 | 不工作；关闭控制台时不要误选这些动作；恢复先检查/重连，不保证短暂停顿都被自动检出 |
+| guest微信最小化或关闭 | 绑定失效、停止；与最小化VM控制台不是同一件事 |
+| guest锁屏、注销、安全桌面 | 不支持；周期及操作前检查拒绝，不自行解锁；已进入原生UI调用可能延迟返回 |
+| RDP连接/最小化/断开 | 不支持；检测RDP会话拒绝运行，不用RDP替代控制台 |
+| 主机锁屏 | 不等于guest锁屏，通常VM继续；本机尚未实测，且主机不能随后休眠 |
+| 主机睡眠、休眠、关机 | 无法工作；恢复后检查中断超过30秒或时钟明显倒退会停止并要求重连；短暂停顿不保证检测，不自动重发 |
+
+检查约0.5秒一次，回调/发送前再检查；不是可中断任何原生UI调用的实时安全承诺。长卡顿也可能触发保守停止。显示/登录仅是必要条件，弹窗、控件树和版本仍可令自动化失败。
+
+输入隔离依赖自动化确实在VM、共享剪贴板/拖放关闭、控制台分离。控制台打开时你的人工输入可能交给VM，切回主机后再操作主号。**目前没有真实双账号并行证据，不能宣称已证明完全无干扰。**
+
+依据：[Oracle分离控制台/headless](https://docs.oracle.com/en/virtualization/virtualbox/7.2/user/remotevm.html)、[Oracle网络模式](https://docs.oracle.com/en/virtualization/virtualbox/7.2/user/networkingdetails.html)、[Microsoft Hyper-V要求](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/host-hardware-requirements)、[pywinauto远程桌面与锁屏限制](https://pywinauto.readthedocs.io/en/latest/remote_execution.html)。厂商能力说明不能替代本机微信验收。
+
+## 免费版兼容性结论
+
+固定免费分支提交`bd7c5233e79c0a185638a325bf6d30607244dfa8`、wxauto4 40.1.1，上游声明WeChat4.0.5；主机实为4.1.13.12，不改动。
+
+候选“guest4.0.5＋固定免费分支”**不是已验证可用组合**。需你提供来源可信、腾讯有效数字签名的对应安装程序并实测能否安装/登录。本轮没有证实官方仍提供4.0.5下载；不从不明网盘拿旧版，不承诺旧版仍能登录。若只能取得当前官方版，可以在另获授权的VM内测试并按最小适配器边界修兼容，不自动降级主机、不购买付费后端。
+
+已保留禁用库清理微信更新目录、只读复制下载源文件、关闭敏感日志等限制；这不阻止微信自身更新，guest升级后需复测。库实际昵称字段来自窗口标题，不能当账号ID；下方源码合同检查不等于真实登录/收发验证。
+
+## 通信安全与维护
+
+标准库HTTPS监听精确host-only IP，精确允许来源IP、随机bearer密钥；客户端先核验证书SHA-256指纹再发密钥，TLS最低1.2；无云、Redis或队列。拒绝浏览器Origin、任意命令、任意文件路径，缩略图只按数据库数字ID在图片根目录取图，有字节/像素/并发/请求体限制。无自动重试发送。
+
+连接文件、私钥、token均敏感，依赖当前用户Windows目录权限，未实现DPAPI。同机恶意程序/管理员或另一个持有密钥的客户端不在强隔离保证内。证书1年，当前无一键轮换；轮换需停服备份management身份文件，再生成新身份并重新配对。不自动信任不匹配指纹。
+
+默认guest数据`%LOCALAPPDATA%\TianyiBot\guest\data`；主机配置`%LOCALAPPDATA%\TianyiBot\host-connection.json`。GUI只存管理连接，不存图库。备份时停止机器人及管理服务，复制整个数据目录（含数据库、图片、配置、management身份），保留故障目录后恢复到新目录并在guest窗口选择；必要时重新配对。待加图与短期去重不跨重启保留。
+
+## 授权后实机验收清单（全部待执行）
+
+明确小号、群、真实收发范围后才执行：
+
+1. 控制台记录guest/微信/免费库版本，核对小号和群；GUI绑定、保存、启动。
+2. A发加图→B发图不入库→A发图入库→B发关键词取图；测取消/超时/两张不连发同图及连续图片隐藏昵称。
+3. 分离控制台，主机主号输入及复制测试文本，同时让机器人在授权群取图；检查焦点/剪贴板未变。
+4. 关闭GUI重开读取运行状态；管理网络断开显示未知，恢复后无重复启动。
+5. 逐一测试控制台最小化/分离、guest锁屏、主机锁屏，记录guest显示与实际消息结果。睡眠不作为持续运行方案，恢复重新确认。
+6. 停止后无新操作（等待已进入UI调用结束），停服整目录备份/新目录恢复。未做这些实测不宣布端到端通过。
+
+---
+# 当前入口：本机识别（0.3，虚拟机方案暂停）
+
+双击`src/打开管理器.vbs` → 识别窗口 → 点击5秒定位并自行切到小号 → 返回核对 → 勾选确认 → 绑定。当前只识别，不读聊天，不发送。不自动选第一个微信；找不到窗口时保持未绑定，不绕过版本结构校验。
+
+窗口列表不显示账号名/聊天标题。可用只读前台定位分清外观相似的两个窗口，随后仍必须人工确认。绑定期间关闭/最小化窗口、进程变化、检测异常或锁屏被轮询发现会取消绑定；检测周期2秒，单次扫描超时8秒。休眠后请重新绑定。关闭本机GUI结束识别，不存在后台机器人；旧VM模式关闭GUI不停止guest的行为不适用于此阶段。
+
+0.3安装额外依赖为uiautomation2.0.29、pywin32312、psutil7.2.2。主机不安装wxauto，不修改微信版本、安全设置、自动登录、网络或系统服务。VirtualBox已安装本体/网卡仍保留，本轮没有新增虚拟机下载或系统变更。
+
+已验证：86项测试通过，包含16项新增模拟窗口身份与实际Tk验证；在当前Windows环境实际只读扫描完成，发现1个主窗口，未选择、绑定或读取账号聊天。**这不是双微信隔离实测，也不是4.1.13.12收发兼容性通过。**
+
+恢复：关闭管理器即可取消本机操作。若需旧GUI，可显式运行management.gui --remote；数据/SQLite未迁移。安装包版本回退不影响图库。本次没有删除文件；此前删除的8.29GiB安装介质需要重新下载才能恢复。
+# 0.4最新状态：全后台要求优先，真实收发仍禁用
+
+重新打开管理器，绑定后点击“4. 图库与后台能力”。可保存本机配置、浏览本机图库，或在独立的离线演示中启动→演示加图/取图→选择离线演示图库查看图片→停止。演示不会读取/操作微信，不能作为后台微信验证。
+
+下一步信息收集入口：“只读检查绑定窗口的后台接口（不收发）”。检查只读输入控件结构及Value接口声明，不读聊天/账号内容，不执行接口，不要求微信位于前台。缺失结构时失败，不切前台补救。即使声明存在，也不代表微信接受后台赋值、图片附加或保证不抢焦点，真实启动仍禁止。
+
+证据：固定免费分支[chatbox.py](https://github.com/FreeWisdom/wxauto-4.0/blob/bd7c5233e79c0a185638a325bf6d30607244dfa8/wxauto4/ui/chatbox.py)的clear_edit/send_text/send_file调用_show、Click、SendKeys、剪贴板，另有全局Menu兜底；不能直接满足要求。[Microsoft Invoke说明](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-implementinginvoke)明确控件自身实现动作且可能有选择/弹窗等副作用，不能把换用Invoke当作全后台无干扰证明。
+
+最小下一步是验证已绑定小号是否暴露可用后台控件能力，并单独研究无全局输入的图片读取/附加路径。当前没有证据支持完整方案，不推荐擅自切回虚拟机、强制前台、注入或自定义微信协议。
+
+本轮没有运行真实绑定窗口的结构深查（需用户主动点击），没有真实收发、安装微信后端、系统变更、重启/关闭用户已有GUI或删除文件。仅更新本机应用安装包；重开需人工重新绑定。
+# 0.4.1同学群后台草稿测试（用户主动操作）
+
+重开管理器，重新绑定小号，人工在小号主窗口准备同学群并确认无草稿/附件，然后返回管理器。进入图库与后台能力，勾选本次测试确认并点击“同学群：后台草稿测试（不发送）”。不要勾选或点击真实发送，真实机器人仍禁用。
+
+后台测试不要求微信位于前台，不自动切换聊天；为了区分测试副作用与人工操作，这一次观测期间请暂不移动鼠标或输入。程序不占用/锁定输入设备，输入发生即使测试失效。这不是日常机器人要求用户停用电脑的替代方案。
+
+结果为本轮观察通过、未执行、失败或清理不确定。若不确定，人工检查小号同学群输入框，删除仅本次TIANYI_DRAFT_TEST_标记，不要发送；不要连续点击重试。报告文件位于USERPROFILE/.tianyi-bot/local-workspace/last-draft-trial.json，可由后续诊断读取，不含账号或草稿内容。
+
+本轮只验证程序及界面（125测试、无跳过），未调用真实native_experiment、未触碰真实群。项目应用开发不同于agent直接使用桌面控制工具；agent没有绕过computer-use执行原生UI写入。Windows文档仅支持API语义，不提供微信后台无焦点副作用保证。
+# 0.4.2只读失败定位
+
+重开新版管理器并人工复核小号绑定，使用“同学群：只读定位失败步骤（不写入）”。该按钮不需要草稿写入勾选，不发送消息。单独报告位于用户目录.tianyi-bot/local-workspace/last-draft-diagnostic.json；原last-draft-trial.json保留。诊断通过仅表示本次读取前提通过，不能据此启用后台机器人。
+# 完整上线验收（未完成）
+
+目标保持为分身微信自动收指令、同发送者加图原文件入库、关键词取图并发回授权群，隐藏分身时不干扰主机。人工选图入口不是此目标的替代品。
+
+## 已有证据与缺口
+
+- 本机图库：校验原图、哈希去重、群隔离、随机取图有回归测试。
+- 分身启动/窗口绑定：用户曾验证成功；隐藏后的持续截图、输入隔离仍缺整链路验收。
+- UIA/OCR：用户确认可见画面识别；不是稳定事件流或发送者身份的证据。
+- 持久化事件处理：核心已写入 processing/done/uncertain，重启不自动重发结果不明的操作。只对提供可靠事件 ID 的适配器成立；UI RuntimeId 不能当永久服务端 ID，不能宣称精确一次。
+- 自动原图获取：既有 wxauto 适配器实现使用点击、滚动和剪贴板；尚未证明满足分身隔离要求，不能直接启用。
+- 实际发送：有旧适配器实现，但无当前版本后台验证和当前真实发送授权，保持禁用。
+- 发送者关联、断线后补收、持久化加图等待、GUI 独立后台进程、可靠启动停止仍需实现/整体验证。
+
+## 后续实施顺序
+
+1. 建立分身内受控自动化边界，证明所有操作仅发生在分身会话；不直接取消现有后台门禁。
+2. 将消息识别、发送者、原图获取接成统一事件流；不从 OCR 文字推断身份、不猜文件归属。
+3. 持久化加图状态和收发记录，设计不确定发送的人工核验入口，不能自动重放。
+4. 接实际图库核心和 GUI 启停，后台任务与管理窗口解耦。
+5. 在明确授权账号/群内集中验证加图、取图、重复消息、重启、断连、隐藏分身、主机输入不受影响。
+
+## 当前恢复约束
+
+event_processing 是新增表，不删旧图或源文件。processing/uncertain 不自动删除、不自动重放。停止机器人后可以检查状态数量；只有核对外部效果后才能决定后续动作。当前没有上线或归档。

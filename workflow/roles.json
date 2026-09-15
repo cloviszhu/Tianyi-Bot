@@ -1,0 +1,9 @@
+{
+  "requirements": ["docs/requirements.md"],
+  "design": ["docs/design.md"],
+  "implementation": ["src/*", "tests/*"],
+  "configuration": ["pyproject.toml", ".env.example", ".gitignore"],
+  "policy": ["workflow/*"],
+  "documentation": ["README.md", "docs/integration.md"],
+  "audit": ["docs/review.md"]
+}

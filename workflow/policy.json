@@ -1,0 +1,33 @@
+{
+  "schema_version": "2.0",
+  "profile_id": "tianyi-mvp-balanced",
+  "profile_version": "1.0",
+  "description_zh": "Derived from balanced-decisions-v1: authorized local MVP build, mock verification, final user acceptance. Live account use requires separate explicit approval.",
+  "semantic_roles": ["requirements", "design", "implementation", "configuration", "policy", "documentation", "audit"],
+  "artifact_policy": {},
+  "risk": {
+    "tier_order": ["R2"],
+    "signal_floors": {"stateful": "R2", "cross_cutting": "R2"},
+    "tiers": {"R2": {"obligations": ["formation_ready", "implementation_complete", "verification", "user_acceptance", "closure"]}}
+  },
+  "workflow": {
+    "obligation_order": ["formation_ready", "implementation_complete", "verification", "user_acceptance", "closure"],
+    "obligation_kinds": {"formation_ready": "regular", "implementation_complete": "regular", "verification": "regular", "user_acceptance": "user_decision", "closure": "closure"},
+    "requirements": {
+      "formation_ready": [{"check": "adapter_valid"}, {"check": "classified_paths"}],
+      "implementation_complete": [{"check": "classified_paths"}],
+      "verification": [{"check": "classified_paths"}, {"check": "evidence_coverage"}, {"check": "controls_present", "control_ids": ["self_review", "recovery_plan"]}],
+      "user_acceptance": [{"check": "obligations_satisfied", "obligation_ids": ["verification"]}, {"check": "no_blocking_findings", "severities": ["P0", "P1"]}, {"check": "evidence_coverage"}, {"check": "decisions_accepted", "decision_keys": ["delivery_acceptance"]}],
+      "closure": [{"check": "no_pending_revision_request"}, {"check": "no_blocking_findings", "severities": ["P0", "P1"]}, {"check": "evidence_coverage"}]
+    },
+    "control_contracts": {"self_review": {"actor_types": ["agent"]}, "recovery_plan": {"actor_types": ["agent"]}},
+    "invalidation": {
+      "roles": {"requirements": ["*"], "design": ["*"], "implementation": ["implementation_complete", "verification", "user_acceptance", "closure"], "configuration": ["implementation_complete", "verification", "user_acceptance", "closure"], "policy": ["*"], "documentation": [], "audit": []},
+      "unclassified": ["*"]
+    },
+    "inheritance_forbidden_kinds": ["user_decision", "closure"],
+    "decisions": {
+      "delivery_acceptance": {"purpose": "outcome_acceptance", "reuse": "never", "request_prerequisites": ["verification"], "reentry_obligation": "formation_ready", "basis": {"roles": ["requirements", "design", "implementation", "configuration", "documentation", "audit"], "paths": [], "records": ["criteria", "evidence", "findings"]}}
+    }
+  }
+}
