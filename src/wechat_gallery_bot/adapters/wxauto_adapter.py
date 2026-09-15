@@ -57,6 +57,13 @@ class WxAutoAdapter:
         self._downloaded: Path | None = None
         self._ready = False
         self._guard = None
+        self.on_issue = None
+
+    def _report_issue(self, code):
+        # Only fixed codes cross the worker channel: never backend exception
+        # strings, account names, message bodies or filesystem paths.
+        if self.on_issue is not None:
+            self.on_issue(code)
 
     def _before_input(self):
         if self._guard is not None:
@@ -76,16 +83,22 @@ class WxAutoAdapter:
         with self._lock:
             if not self._ready:
                 return
+            stage = "message_metadata"
             try:
                 if message.attr != "friend" or message.type not in {"text", "image"}:
                     return
                 if self._guard is not None:
+                    stage = "isolation"
                     self._guard()
+                stage = "chat_identity"
                 name = self._check_chat(chat)
+                stage = "sender_identity"
                 sender = message.sender
                 if not isinstance(sender, str) or not sender.strip() or sender in {name, "friend", "system", "对方", "自己", "我"}:
                     log.warning("Skipped event: sender identity unavailable")
+                    self._report_issue("sender_unavailable")
                     return
+                stage = "event_identity"
                 event = MessageEvent(
                     chat_key=name, sender_key=sender, sender_name=sender,
                     message_type=message.type, text=message.content if message.type == "text" else "",
@@ -93,9 +106,11 @@ class WxAutoAdapter:
                     timestamp=time.time(),
                 )
                 self._active = (event, message, chat)
+                stage = "handler"
                 handler(event)
             except Exception as exc:
                 log.warning("WeChat callback failed (%s)", type(exc).__name__)
+                self._report_issue(stage)
             finally:
                 self._active = None
                 if self._downloaded is not None:

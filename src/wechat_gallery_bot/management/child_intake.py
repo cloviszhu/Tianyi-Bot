@@ -10,6 +10,21 @@ from pathlib import Path
 
 from .common import ManagementError
 
+ISSUE_LABELS = {
+    "sender_unavailable": "发送者不可识别，已跳过；连续图片可能因此无法入库",
+    "message_metadata": "消息类型读取失败",
+    "isolation": "分身隔离检查失败",
+    "chat_identity": "群窗口身份检查失败",
+    "sender_identity": "发送者读取失败",
+    "event_identity": "消息去重标识读取失败",
+    "handler": "图库回调失败",
+}
+
+
+def issue_message(code, count):
+    return "接收异常累计 %d 次：%s。不能据此认为收发正常。" % (
+        count, ISSUE_LABELS.get(code, "未知接收异常"))
+
 
 class IntakeProcess:
     def __init__(self):
@@ -61,6 +76,8 @@ class IntakeProcess:
                         self.checked_at = time.monotonic()
                     elif state == "handled":
                         self.message = "已交给图库处理 %d 条事件；%s；不代表全部处理成功。" % (int(data["count"]), "本轮允许群收发" if send_confirmed is True else "群发送禁用")
+                    elif state == "issue":
+                        self.message = issue_message(data.get("code"), int(data["count"]))
                     elif state == "error":
                         self.terminal = True
                         self.message = "运行失败：隔离检查、窗口或免费库兼容性未通过；不自动重试，收发结果需核对。"
@@ -148,6 +165,12 @@ def worker():
         with uia.UIAutomationInitializerInThread():
             repository = SQLiteRepository(root / "bot.db")
             adapter = ChildWxAutoAdapter(config.groups, root / "downloads", config.max_image_bytes)
+            issue_count = 0
+            def issue(code):
+                nonlocal issue_count
+                issue_count += 1
+                emit("issue", code=code if code in ISSUE_LABELS else "unknown", count=issue_count)
+            adapter.on_issue = issue
             bot = GalleryBot(adapter, GalleryService(repository, root / "images", config.max_image_bytes),
                              PersistentPendingAddService(repository, config.pending_seconds))
             count = 0
