@@ -92,6 +92,7 @@ class IntakeProcess:
         self.ready = False
         self.checked_at = None
         self.terminal = False
+        self.release = "installed"
 
     @property
     def active(self):
@@ -105,10 +106,13 @@ class IntakeProcess:
             executable = executable.with_name("python.exe")
         payload = {"window": asdict(window), "root": str(root), "settings": settings,
                    "send_confirmed": send_confirmed is True}
-        process = subprocess.Popen([str(executable), "-m", __name__, "--worker"],
+        from .worker_release import WorkerReleases
+        command, release = WorkerReleases().command(executable)
+        process = subprocess.Popen(command,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             text=True, encoding="utf-8", creationflags=subprocess.CREATE_NO_WINDOW)
         self.process, self.window = process, window
+        self.release = release
         self.stopping_at, self.started_at, self.ready = None, time.monotonic(), False
         self.checked_at, self.terminal = None, False
         self.message = "正在检查分身隔离及免费后端兼容性；不发送。"

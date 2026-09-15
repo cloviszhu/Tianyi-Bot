@@ -32,7 +32,7 @@ class LocalOperationsWindow:
         self.results = queue.Queue()
         self.timers = set()
         self.rows, self.photo = {}, None
-        root.title("天意Bot 0.6.14 · 群监听与图库" if child_mode else "天意Bot · 本机图库与后台能力")
+        root.title("天意Bot 0.7.0 · 群监听与图库" if child_mode else "天意Bot · 本机图库与后台能力")
         root.geometry("960x850")
         root.minsize(960, 850)
         root.protocol("WM_DELETE_WINDOW", self.close)

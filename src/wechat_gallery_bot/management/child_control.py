@@ -144,6 +144,7 @@ def attach_control(window):
         return {"bound": window.bound is not None, "busy": window.busy or bool(ops and ops.busy),
                 "active": bool(intake and intake.active), "ready": bool(intake and intake.active and intake.ready),
                 "terminal": bool(intake and intake.terminal),
+                "release": getattr(intake, "release", "installed"),
                 "summary": intake.message if intake else "自动接收尚未启动"}
 
     def dispatch(action):
