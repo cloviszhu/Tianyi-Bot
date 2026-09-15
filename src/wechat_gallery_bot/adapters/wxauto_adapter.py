@@ -62,6 +62,9 @@ class WxAutoAdapter:
         if self._guard is not None:
             self._guard()
 
+    def _event_id(self, message):
+        return str(message.id) if message.id is not None else None
+
     def _check_chat(self, chat) -> str:
         info = chat.ChatInfo()
         name = info.get("chat_name")
@@ -86,7 +89,7 @@ class WxAutoAdapter:
                 event = MessageEvent(
                     chat_key=name, sender_key=sender, sender_name=sender,
                     message_type=message.type, text=message.content if message.type == "text" else "",
-                    event_id=str(message.id) if message.id is not None else None,
+                    event_id=self._event_id(message),
                     timestamp=time.time(),
                 )
                 self._active = (event, message, chat)

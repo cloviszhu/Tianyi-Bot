@@ -1,15 +1,30 @@
 """Child-only automation; sends require explicit per-run GUI consent."""
+import hashlib
+import json
 from .base import AdapterError
 from .wxauto_adapter import WxAutoAdapter
 from ..management.child_input import ChildInputGuard
 
 
 class ChildWxAutoAdapter(WxAutoAdapter):
+    def _event_id(self, message):
+        # Upstream id is UIA runtimeid, not a server message identifier. Scope it
+        # to the WeChat process incarnation, stable across bot-worker restarts.
+        origin = getattr(self, "_event_origin", None)
+        if origin is None or message.id is None:
+            raise AdapterError("缺少可用于本轮去重的窗口或消息标识。")
+        payload = [origin, message.id]
+        return "uia-process-v1:" + hashlib.sha256(json.dumps(payload, ensure_ascii=True).encode()).hexdigest()
+
+    def _set_event_origin(self, window):
+        self._event_origin = [window.pid, window.created, window.executable.casefold()]
+
     def run(self, handler, *, window, stop_event, on_ready=None, on_checked=None, send_groups=()):
         allowed = frozenset(send_groups)
         if not allowed.issubset(self.groups):
             raise AdapterError("发送授权超出监听群配置。")
         self._send_groups = frozenset()
+        self._set_event_origin(window)
         check = ChildInputGuard(window, stop_event)
         def guard():
             check()
