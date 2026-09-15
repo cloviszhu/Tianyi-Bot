@@ -10,6 +10,23 @@ from wechat_gallery_bot.management.common import ManagementError
 
 
 class SessionLauncherTests(unittest.TestCase):
+    def test_compiled_recovery_preserves_live_and_failed_queries_archives_stale(self):
+        with tempfile.TemporaryDirectory() as folder:
+            result = subprocess.run([str(child_session.build_host()), "--recovery-selftest", folder], timeout=20, creationflags=subprocess.CREATE_NO_WINDOW)
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual((Path(folder) / "result.txt").read_text(), "recovery_passed; simulated_session_queries_only")
+
+    def test_recovery_is_under_exclusive_lease_without_system_mutations(self):
+        source = Path(child_session.__file__).with_name("ChildSessionHost.cs").read_text(encoding="utf-8")
+        helper = source.split("static class RecoveryJournal", 1)[1].split("static class Native", 1)[0]
+        for forbidden in ["Native.Enable", "WTSLogoffSession", "File.Delete", "ConnectPrepared"]:
+            self.assertNotIn(forbidden, helper)
+        self.assertLess(helper.index("queryChild().HasValue"), helper.index("File.Move"))
+        constructor = source.split("public TrialForm()", 1)[1].split("bool ReconcileJournal()", 1)[0]
+        self.assertLess(constructor.index("FileShare.None"), constructor.index("ReconcileJournal();"))
+        begin = source.split("void Begin()", 1)[1].split("void Check()", 1)[0]
+        self.assertIn("if(!ReconcileJournal())return", begin)
+
     def test_query_failure_keeps_readonly_polling_but_cannot_logoff(self):
         source = Path(child_session.__file__).with_name("ChildSessionHost.cs").read_text(encoding="utf-8")
         check = source.split("void Check()",1)[1].split("async void EndTrial()",1)[0]

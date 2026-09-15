@@ -24,6 +24,18 @@ class CycleState {
     public void LeaveTransition() {Transitioning=false;}
 }
 
+// Caller must hold trial.lock. A journal is evidence, not a permanent lock.
+static class RecoveryJournal {
+    public static string Reconcile(string path, Func<uint?> queryChild) {
+        if(!File.Exists(path))return "ready";
+        if(queryChild().HasValue)return "live_child";
+        // Preserve the old baseline for investigation. Do not change system switches:
+        // a new cycle will record the actual current state as its own baseline.
+        File.Move(path,path+".stale."+Guid.NewGuid().ToString("N"));
+        return "archived";
+    }
+}
+
 static class Native {
     [DllImport("wtsapi32.dll", SetLastError=true)] public static extern bool WTSIsChildSessionsEnabled(out bool enabled);
     [DllImport("wtsapi32.dll", SetLastError=true)] public static extern bool WTSEnableChildSessions(bool enabled);
@@ -177,7 +189,7 @@ class TrialForm : Form {
     long heartbeatTicks;
 
     public TrialForm() {
-        Text = "天意Bot 0.6.11 · 分身控制器"; Size = new Size(770,460);
+        Text = "天意Bot 0.7.2 · 分身控制器"; Size = new Size(770,490);
         string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"TianyiBotSessionTrial");
         Directory.CreateDirectory(folder); journal = Path.Combine(folder,"recovery.txt");
         lease = new FileStream(Path.Combine(folder,"trial.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);
@@ -192,16 +204,31 @@ class TrialForm : Form {
         show.Click += delegate {if(!cycle.Transitioning && viewer!=null) viewer.Show();}; panel.Controls.Add(show);
         Button restore = new Button {Text="结束本次测试并恢复开关",Width=330};
         restore.Click += delegate { EndTrial(); }; panel.Controls.Add(restore);
+        Button recheck = new Button {Text="重新检查分身状态",Width=330};
+        recheck.Click += delegate {if(!active && !cycle.Transitioning)ReconcileJournal();else Check();}; panel.Controls.Add(recheck);
         status.Width=710; status.Height=90; panel.Controls.Add(status);
         panel.Controls.Add(new Label {Width=710,Height=45,Text="连接后，在分身内打开项目src目录中的“分身内打开微信管理.vbs”。\n请手动登录小号并核对绑定；本控制器不自动启动微信或发送。"});
-        status.Text=File.Exists(journal) ? "发现上次恢复记录，禁止新建。请先核查恢复记录："+journal : "尚未创建；打开此面板不会修改系统。";
-        start.Enabled=!File.Exists(journal);
+        ReconcileJournal();
         timer.Interval=1000; timer.Tick += delegate { Check(); }; timer.Start();
         FormClosing += delegate(object sender, FormClosingEventArgs e) {
             if(cycle.Transitioning){e.Cancel=true;return;}
             if (active && !closing) { EndTrial(); if(active) { e.Cancel=true; return; } }
             timer.Stop(); if(viewer!=null) viewer.Dispose(); lease.Dispose();
         };
+    }
+    bool ReconcileJournal() {
+        try {
+            string result=RecoveryJournal.Reconcile(journal,Native.Child);
+            start.Enabled=result!="live_child";
+            status.Text=result=="archived" ? "旧分身已不存在，恢复记录已备份，可以重新创建。系统开关未修改。" :
+                result=="live_child" ? "分身仍存在，旧记录已保留；请结束原分身后点“重新检查分身状态”。不会自动注销它。" :
+                "可以创建分身；打开此面板不会修改系统。";
+            return start.Enabled;
+        } catch(Exception ex) {
+            start.Enabled=false;
+            status.Text="暂时无法核查或备份记录（"+ex.GetType().Name+"），原记录保留。可点“重新检查分身状态”重试。";
+            return false;
+        }
     }
     void Record(string phase) {
         string text="phase="+phase+"\noriginal_enabled="+originalEnabled+"\noriginal_service_stopped="+originalServiceStopped+"\nowned_session="+(owned.HasValue?owned.Value.ToString():"unknown")+"\n";
@@ -218,7 +245,8 @@ class TrialForm : Form {
         if(File.Exists(journal)) File.Replace(temp,journal,null); else File.Move(temp,journal);
     }
     void Begin() {
-        if(active || cycle.Transitioning || File.Exists(journal)) return;
+        if(active || cycle.Transitioning) return;
+        if(!ReconcileJournal())return;
         if(!new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator)) {
             status.Text="未启用：请关闭此面板，以管理员身份运行验证入口。程序不会自动提权。"; return;
         }
@@ -317,6 +345,35 @@ class TrialForm : Form {
     }
     [STAThread] static void Main(string[] args) {
         Application.EnableVisualStyles();
+        if(args.Length==2 && args[0]=="--recovery-selftest") {
+            try {
+                string path=Path.Combine(args[1],"recovery-fixture.txt");
+                if(RecoveryJournal.Reconcile(path,()=>{throw new Exception("unneeded query");})!="ready")throw new Exception("missing");
+                File.WriteAllText(path,"original_enabled=False\nowned_session=14");
+                string original=File.ReadAllText(path);
+                if(RecoveryJournal.Reconcile(path,()=>14)!="live_child" || File.ReadAllText(path)!=original)throw new Exception("live");
+                bool failed=false;
+                try {RecoveryJournal.Reconcile(path,()=>{throw new IOException("query failed");});}catch(IOException){failed=true;}
+                if(!failed || File.ReadAllText(path)!=original)throw new Exception("query failure");
+                if(RecoveryJournal.Reconcile(path,()=>null)!="archived" || File.Exists(path))throw new Exception("stale");
+                string[] backups=Directory.GetFiles(args[1],"recovery-fixture.txt.stale.*");
+                if(backups.Length!=1 || File.ReadAllText(backups[0])!=original)throw new Exception("backup");
+                if(RecoveryJournal.Reconcile(path,()=>null)!="ready")throw new Exception("repeat");
+                File.WriteAllText(Path.Combine(args[1],"result.txt"),"recovery_passed; simulated_session_queries_only");
+            }catch(Exception){Environment.ExitCode=1;}
+            return;
+        }
+        if(args.Length==2 && args[0]=="--reconcile-recovery") {
+            // Maintenance mode: no GUI, connection, logoff, or system switch writes.
+            try {
+                string folder=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"TianyiBotSessionTrial");
+                Directory.CreateDirectory(folder);
+                using(var exclusive=new FileStream(Path.Combine(folder,"trial.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None)) {
+                    File.WriteAllText(args[1],RecoveryJournal.Reconcile(Path.Combine(folder,"recovery.txt"),Native.Child));
+                }
+            }catch(Exception ex){File.WriteAllText(args[1],ex.GetType().Name);Environment.ExitCode=1;}
+            return;
+        }
         if(args.Length==2 && args[0]=="--heartbeat-selftest") {
             string path=Path.Combine(args[1],"heartbeat-fixture.txt");
             try {
