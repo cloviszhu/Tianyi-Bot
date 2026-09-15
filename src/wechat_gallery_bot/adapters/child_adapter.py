@@ -5,8 +5,12 @@ from ..management.child_input import ChildInputGuard
 
 
 class ChildWxAutoAdapter(WxAutoAdapter):
-    def run(self, handler, *, window, stop_event, on_ready=None):
-        guard = ChildInputGuard(window, stop_event)
+    def run(self, handler, *, window, stop_event, on_ready=None, on_checked=None):
+        check = ChildInputGuard(window, stop_event)
+        def guard():
+            check()
+            if on_checked is not None:
+                on_checked()
         guard()  # Before importing wxauto, opening chats, or starting its listener.
         return super().run(handler, stop_event=stop_event, hwnd=window.hwnd,
                            guard=guard, on_ready=on_ready)

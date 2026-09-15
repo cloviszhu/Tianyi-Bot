@@ -19,6 +19,8 @@ class IntakeProcess:
         self.stopping_at = None
         self.started_at = None
         self.ready = False
+        self.checked_at = None
+        self.terminal = False
 
     @property
     def active(self):
@@ -36,6 +38,7 @@ class IntakeProcess:
             text=True, encoding="utf-8", creationflags=subprocess.CREATE_NO_WINDOW)
         self.process, self.window = process, window
         self.stopping_at, self.started_at, self.ready = None, time.monotonic(), False
+        self.checked_at, self.terminal = None, False
         self.message = "正在检查分身隔离及免费后端兼容性；不发送。"
         try:
             process.stdin.write(json.dumps(payload) + "\n")
@@ -53,11 +56,15 @@ class IntakeProcess:
                     if state == "ready":
                         self.ready = True
                         self.message = "自动接收已启动：收到加图指令后尝试读取原图入库；所有群回复均禁用。"
+                    elif state == "checked":
+                        self.checked_at = time.monotonic()
                     elif state == "handled":
                         self.message = "已交给图库处理 %d 条事件；入库结果请查看图库，不代表发送成功。" % int(data["count"])
                     elif state == "error":
+                        self.terminal = True
                         self.message = "自动接收失败：隔离检查、窗口或免费库兼容性未通过。未发送；不自动重试。"
                     elif state == "stopped":
+                        self.terminal = True
                         self.message = "自动接收已停止；未发送。"
             except (ValueError, OSError, KeyError):
                 if process is self.process:
@@ -81,12 +88,16 @@ class IntakeProcess:
         if self.active:
             if window != self.window or (not self.ready and time.monotonic() - self.started_at > 30):
                 self.stop()
+            if self.ready and time.monotonic() - (self.checked_at if self.checked_at is not None else self.started_at) > 12:
+                self.stop()
+                self.message = "分身运行检查超过12秒未更新，正在停止；不能确认机器人仍正常。"
             if self.stopping_at is not None and time.monotonic() - self.stopping_at > 5:
                 self.process.terminate()  # Only the worker created by this supervisor.
                 self.message = "接收程序停止超时，已结束本次工作进程；未关闭微信或分身。"
         elif self.process is not None:
-            if self.process.returncode and self.stopping_at is None:
+            if not self.terminal and self.stopping_at is None:
                 self.message = "自动接收工作进程异常退出；未自动重试。"
+            self.ready = False
             if self.process.stdin and not self.process.stdin.closed:
                 self.process.stdin.close()
         return self.message
@@ -104,9 +115,11 @@ def worker():
     from ..services.pending_add_service import PersistentPendingAddService
     stop = threading.Event()
     output = sys.stdout
+    output_lock = threading.Lock()
     def emit(state, **fields):
-        output.write(json.dumps({"state": state, **fields}) + "\n")
-        output.flush()
+        with output_lock:
+            output.write(json.dumps({"state": state, **fields}) + "\n")
+            output.flush()
     repository = None
     leases = ExitStack()
     try:
@@ -143,7 +156,13 @@ def worker():
                 bot.handle(event)
                 count += 1
                 emit("handled", count=count)
-            adapter.run(handle, window=window, stop_event=stop, on_ready=lambda: emit("ready"))
+            last_check = [0.0]
+            def checked():
+                now = time.monotonic()
+                if now - last_check[0] >= 1:
+                    last_check[0] = now
+                    emit("checked")
+            adapter.run(handle, window=window, stop_event=stop, on_ready=lambda: emit("ready"), on_checked=checked)
         emit("stopped")
     except Exception:
         emit("error")

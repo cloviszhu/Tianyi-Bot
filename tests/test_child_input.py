@@ -122,6 +122,31 @@ class IntakeSupervisorTests(unittest.TestCase):
                 runner.start(None, None, None)
         spawn.assert_not_called()
 
+    def test_ready_process_without_recent_checks_is_stopped(self):
+        runner = self.running()
+        runner.ready = True
+        runner.checked_at = 100
+        with patch("wechat_gallery_bot.management.child_intake.time.monotonic", return_value=113):
+            runner.poll("child-window")
+        self.assertEqual(runner.stopping_at, 113)
+        self.assertIn("12秒", runner.message)
+
+    def test_idle_but_fresh_checks_remain_running(self):
+        runner = self.running()
+        runner.ready = True
+        runner.checked_at = 112
+        with patch("wechat_gallery_bot.management.child_intake.time.monotonic", return_value=113):
+            runner.poll("child-window")
+        self.assertIsNone(runner.stopping_at)
+
+    def test_zero_exit_without_terminal_report_is_not_online(self):
+        runner = self.running()
+        runner.ready = True
+        runner.process.poll.return_value = 0
+        runner.process.returncode = 0
+        self.assertIn("异常退出", runner.poll("child-window"))
+        self.assertFalse(runner.ready)
+
 
 if __name__ == "__main__":
     unittest.main()
