@@ -10,3 +10,4 @@ data/
 .oracle-workflow/
 .oracle-workflow-backups/
 .codex-remote-attachments/
+.project-archive-local/
