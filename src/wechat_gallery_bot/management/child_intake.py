@@ -10,6 +10,19 @@ from pathlib import Path
 
 from .common import ManagementError
 
+def code_locations(tb):
+    """Bounded package code coordinates only, no locals, source or full paths."""
+    locations = []
+    while tb is not None and len(locations) < 24:
+        module = tb.tb_frame.f_globals.get("__name__", "")
+        if isinstance(module, str) and any(module == prefix or module.startswith(prefix + ".")
+                for prefix in ("wechat_gallery_bot", "wxauto4", "uiautomation")):
+            # Package module names are source identifiers, not window metadata.
+            if len(module) <= 160 and all(c.isascii() and (c.isalnum() or c in "._") for c in module):
+                locations.append({"module": module, "line": tb.tb_lineno})
+        tb = tb.tb_next
+    return locations
+
 STARTUP_STAGES = {
     "request": "读取启动参数", "isolation": "分身输入隔离检查",
     "data_path": "核对图库目录", "data_lock": "获取图库运行锁",
@@ -24,13 +37,14 @@ def failure_record(stage, exc):
     # Exception messages/tracebacks may contain chats and paths. Keep only
     # allowlisted type labels, never arbitrary class names or repr/str(exc).
     from .child_input import GUARD_STEPS
-    kinds, visited = [], set()
+    kinds, visited, locations = [], set(), []
     guard_step = None
     while exc is not None and id(exc) not in visited and len(kinds) < 5:
         candidate = getattr(exc, "guard_step", None)
         if isinstance(candidate, str) and candidate in GUARD_STEPS:
             guard_step = candidate
         visited.add(id(exc))
+        locations.extend(code_locations(exc.__traceback__))
         name = type(exc).__name__
         kinds.append(name if name in {"ManagementError", "AdapterError", "ValueError",
             "TypeError", "AttributeError", "KeyError", "ImportError", "ModuleNotFoundError",
@@ -40,6 +54,8 @@ def failure_record(stage, exc):
     record = {"stage": stage if stage in STARTUP_STAGES else "request", "kinds": kinds}
     if guard_step is not None:
         record["guard_step"] = guard_step
+    if locations:
+        record["locations"] = locations[-24:]
     return record
 
 

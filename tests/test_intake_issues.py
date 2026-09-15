@@ -5,10 +5,21 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 from wechat_gallery_bot.adapters.wxauto_adapter import WxAutoAdapter
-from wechat_gallery_bot.management.child_intake import issue_message, failure_record, failure_message
+from wechat_gallery_bot.management.child_intake import issue_message, failure_record, failure_message, code_locations
 
 
 class IntakeIssuesTests(unittest.TestCase):
+    def test_code_coordinates_exclude_locals_source_and_absolute_paths(self):
+        space = {"__name__": "wxauto4.ui.session"}
+        exec(compile("def fail():\n    private_account = 'secret'\n    raise Exception(private_account)\n", "C:/private/user/source.py", "exec"), space)
+        try:
+            space["fail"]()
+        except Exception as exc:
+            result = failure_record("group_listener", exc)
+        self.assertEqual(result["locations"], [{"module": "wxauto4.ui.session", "line": 3}])
+        self.assertNotIn("secret", str(result))
+        self.assertNotIn("private", str(result))
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
