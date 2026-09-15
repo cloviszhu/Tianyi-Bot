@@ -5,5 +5,5 @@
   "configuration": ["pyproject.toml", ".env.example", ".gitignore"],
   "policy": ["workflow/*"],
   "documentation": ["README.md", "docs/integration.md"],
-  "audit": ["docs/review.md"]
+  "audit": ["docs/review.md", ".codex-remote-attachments/*"]
 }

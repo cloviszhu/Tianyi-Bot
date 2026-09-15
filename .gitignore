@@ -9,3 +9,4 @@ data/
 *.log
 .oracle-workflow/
 .oracle-workflow-backups/
+.codex-remote-attachments/

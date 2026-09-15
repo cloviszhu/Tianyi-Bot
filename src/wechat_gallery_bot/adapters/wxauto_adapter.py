@@ -58,6 +58,11 @@ class WxAutoAdapter:
         self._ready = False
         self._guard = None
         self.on_issue = None
+        self.on_stage = None
+
+    def _stage(self, code):
+        if self.on_stage is not None:
+            self.on_stage(code)
 
     def _report_issue(self, code):
         # Only fixed codes cross the worker channel: never backend exception
@@ -200,6 +205,7 @@ class WxAutoAdapter:
                 preview.control.SendKeys("{Esc}")
 
     def run(self, handler: Callable[[MessageEvent], None], *, stop_event=None, hwnd=None, guard=None, on_ready=None) -> None:
+        self._stage("backend_metadata")
         check_backend()
         self.download_root.mkdir(parents=True, exist_ok=True)
         wx = None
@@ -209,16 +215,19 @@ class WxAutoAdapter:
             self._before_input()
             with tempfile.TemporaryDirectory(prefix="session-", dir=self.download_root) as session:
                 self.download_root = Path(session)
+                self._stage("backend_import")
                 package = importlib.import_module("wxauto4")
                 module = importlib.import_module("wxauto4.wx")
                 _configure_backend(package, module, self.download_root)
                 if guard is not None:
                     guard()
                 # The upstream constructor prints the selected window title.
+                self._stage("wechat_constructor")
                 with contextlib.redirect_stdout(io.StringIO()):
                     wx = package.WeChat(debug=False, **({"hwnd": hwnd} if hwnd is not None else {}))
                 try:
                     for group in sorted(self.groups):
+                        self._stage("group_listener")
                         if guard is not None:
                             guard()
                         listening_started = True  # AddListenChat starts the thread before finding the chat.
@@ -226,6 +235,7 @@ class WxAutoAdapter:
                         if not chat or self._check_chat(chat) != group:
                             raise AdapterError("无法监听配置的群聊。")
                     self._ready = True
+                    self._stage("listening")
                     if on_ready is not None:
                         on_ready()
                     if stop_event is None:

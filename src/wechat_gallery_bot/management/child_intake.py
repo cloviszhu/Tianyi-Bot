@@ -10,6 +10,36 @@ from pathlib import Path
 
 from .common import ManagementError
 
+STARTUP_STAGES = {
+    "request": "读取启动参数", "isolation": "分身输入隔离检查",
+    "data_path": "核对图库目录", "data_lock": "获取图库运行锁",
+    "configuration": "解析群配置", "uia": "初始化UIA",
+    "database": "打开图库数据库", "backend_metadata": "检查免费库版本来源",
+    "backend_import": "加载免费库依赖", "wechat_constructor": "连接微信控件",
+    "group_listener": "打开并监听配置群", "listening": "监听运行",
+}
+
+
+def failure_record(stage, exc):
+    # Exception messages/tracebacks may contain chats and paths. Keep only
+    # allowlisted type labels, never arbitrary class names or repr/str(exc).
+    kinds, visited = [], set()
+    while exc is not None and id(exc) not in visited and len(kinds) < 5:
+        visited.add(id(exc))
+        name = type(exc).__name__
+        kinds.append(name if name in {"ManagementError", "AdapterError", "ValueError",
+            "TypeError", "AttributeError", "KeyError", "ImportError", "ModuleNotFoundError",
+            "PermissionError", "FileNotFoundError", "OSError", "RuntimeError",
+            "OperationalError", "COMError", "TimeoutError"} else "Exception")
+        exc = exc.__cause__ or (None if exc.__suppress_context__ else exc.__context__)
+    return {"stage": stage if stage in STARTUP_STAGES else "request", "kinds": kinds}
+
+
+def failure_message(record):
+    return "运行失败：%s；错误类型 %s。未自动重试，具体收发结果需核对。" % (
+        STARTUP_STAGES.get(record.get("stage"), "未知步骤"),
+        " → ".join(record.get("kinds", [])) or "未知")
+
 ISSUE_LABELS = {
     "sender_unavailable": "发送者不可识别，已跳过；连续图片可能因此无法入库",
     "message_metadata": "消息类型读取失败",
@@ -80,7 +110,7 @@ class IntakeProcess:
                         self.message = issue_message(data.get("code"), int(data["count"]))
                     elif state == "error":
                         self.terminal = True
-                        self.message = "运行失败：隔离检查、窗口或免费库兼容性未通过；不自动重试，收发结果需核对。"
+                        self.message = failure_message(data)
                     elif state == "stopped":
                         self.terminal = True
                         self.message = "机器人已停止；本轮发送授权已结束。" if send_confirmed is True else "自动接收已停止；未发送。"
@@ -140,16 +170,24 @@ def worker():
             output.flush()
     repository = None
     leases = ExitStack()
+    stage = "request"
+    def set_stage(code):
+        nonlocal stage
+        stage = code if code in STARTUP_STAGES else "request"
     try:
         data = json.loads(sys.stdin.readline(16384))
         window = Window(**data["window"])
         guard = ChildInputGuard(window, stop)
+        set_stage("isolation")
         guard()  # Before data writes or backend imports.
+        set_stage("data_path")
         root = Path(data["root"]).resolve()
         expected = (Path.home() / ".tianyi-bot/local-workspace/gallery").resolve()
         if root != expected:
             raise ManagementError("自动接收仅使用固定本机图库目录。")
+        set_stage("data_lock")
         leases.enter_context(data_directory_lock(root))
+        set_stage("configuration")
         settings = data["settings"]
         config = Config.load(root / "unused.env", {
             "TIANYI_GROUPS": json.dumps(settings["groups"]),
@@ -161,10 +199,13 @@ def worker():
             finally:
                 stop.set()
         threading.Thread(target=wait_for_parent, daemon=True).start()
+        set_stage("uia")
         import uiautomation as uia
         with uia.UIAutomationInitializerInThread():
+            set_stage("database")
             repository = SQLiteRepository(root / "bot.db")
             adapter = ChildWxAutoAdapter(config.groups, root / "downloads", config.max_image_bytes)
+            adapter.on_stage = set_stage
             issue_count = 0
             def issue(code):
                 nonlocal issue_count
@@ -186,11 +227,21 @@ def worker():
                 if now - last_check[0] >= 1:
                     last_check[0] = now
                     emit("checked")
+            set_stage("isolation")
             adapter.run(handle, window=window, stop_event=stop, on_ready=lambda: emit("ready"), on_checked=checked,
                         send_groups=config.groups if data.get("send_confirmed") is True else ())
         emit("stopped")
-    except Exception:
-        emit("error")
+    except Exception as exc:
+        record = failure_record(stage, exc)
+        # Fixed local diagnostic, no chat/account data. The failed worker owns
+        # this small report; no main desktop or WeChat interaction is required.
+        try:
+            report = Path.home() / ".tianyi-bot" / "intake-failure.json"
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(json.dumps({**record, "recorded_at": time.time()}), encoding="utf-8")
+        except OSError:
+            pass
+        emit("error", **record)
     finally:
         if repository is not None:
             repository.close()
