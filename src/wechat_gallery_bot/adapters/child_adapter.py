@@ -10,13 +10,18 @@ class ChildWxAutoAdapter(WxAutoAdapter):
     def _prepare_client(self, wx):
         from wxauto4 import uia
         from wxauto4.param import WxResponse
-        from .group_window import open_exact_session
+        from .group_window import open_exact_session, open_group_window, find_scoped_group
         session = wx._api._session_api
         def open_group(name):
-            result = open_exact_session(session, name, self._before_input, uia.IsElementInWindow)
+            result = open_exact_session(session, name, self._before_input, uia.IsElementInWindow, prefer_visible=True)
             return WxResponse.success(data={"nickname": result})
         # Per-client instance only. Never modify installed upstream files.
         session.open_separate_window = open_group
+        wx._api.get_sub_wnd = lambda name: find_scoped_group(wx._api, name, self._before_input)
+        # MainWnd otherwise calls the incompatible search path BEFORE the
+        # SessionBox hook above. Keep this replacement scoped to this client.
+        wx._api.open_separate_window = lambda name: open_group_window(
+            wx._api, name, self._before_input, open_group)
 
     def _event_id(self, message):
         # Upstream id is UIA runtimeid, not a server message identifier. Scope it

@@ -6,6 +6,27 @@ from wechat_gallery_bot.adapters.base import AdapterError
 
 
 class GroupWindowTests(unittest.TestCase):
+    def test_scoped_lookup_ignores_native_qt_version_and_other_processes(self):
+        from wechat_gallery_bot.adapters.group_window import find_scoped_group
+        selected = SimpleNamespace(pid=7, nickname="group")
+        constructor = Mock(return_value=selected)
+        constructor._ui_cls_name = "mmui::FramelessMainWindow"
+        control = Mock(return_value=SimpleNamespace(ProcessId=7, ClassName=constructor._ui_cls_name, Name="group"))
+        def enumerate_windows(callback, arg):
+            callback(10, arg)
+            callback(11, arg)
+        modules = {
+            "win32gui": SimpleNamespace(EnumWindows=enumerate_windows),
+            "win32process": SimpleNamespace(GetWindowThreadProcessId=lambda h: (1, 7 if h == 11 else 8)),
+            "wxauto4": SimpleNamespace(uia=SimpleNamespace(ControlFromHandle=control)),
+            "wxauto4.ui.main": SimpleNamespace(WeChatSubWnd=constructor),
+        }
+        api = SimpleNamespace(pid=7)
+        with patch.dict("sys.modules", modules):
+            self.assertIs(find_scoped_group(api, "group", Mock()), selected)
+        control.assert_called_once_with(11)
+        constructor.assert_called_once_with(11, api)
+
     def row(self, name):
         return SimpleNamespace(name=name, control=SimpleNamespace(Name=name+"\npreview"), double_click=Mock())
 
@@ -58,6 +79,26 @@ class GroupWindowTests(unittest.TestCase):
         with self.assertRaises(AdapterError):
             open_exact_session(session, "group", Mock(), lambda *a: True)
         session.get_session.assert_not_called()
+
+    def test_visible_group_does_not_use_incompatible_search(self):
+        session = self.session([self.row("group")])
+        session.switch_chat.side_effect = AssertionError("search must not run")
+        self.assertEqual(open_exact_session(session, "group", Mock(), lambda *a: True, prefer_visible=True), "group")
+        session.switch_chat.assert_not_called()
+
+    def test_main_window_path_uses_session_hook_then_scoped_lookup(self):
+        from wechat_gallery_bot.adapters.group_window import open_group_window
+        target = object()
+        api = SimpleNamespace(get_sub_wnd=Mock(side_effect=[None, target]), _show=Mock())
+        opener = Mock()
+        self.assertIs(open_group_window(api, "group", Mock(), opener), target)
+        opener.assert_called_once_with("group")
+
+    def test_main_window_existing_window_needs_no_input(self):
+        from wechat_gallery_bot.adapters.group_window import open_group_window
+        target, opener = object(), Mock()
+        self.assertIs(open_group_window(SimpleNamespace(get_sub_wnd=Mock(return_value=target)), "group", Mock(), opener), target)
+        opener.assert_not_called()
 
     def test_child_hook_is_per_client_and_preserves_upstream_response(self):
         from wechat_gallery_bot.adapters.child_adapter import ChildWxAutoAdapter

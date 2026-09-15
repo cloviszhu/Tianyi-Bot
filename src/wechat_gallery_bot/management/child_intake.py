@@ -1,6 +1,6 @@
 """User-started, isolated no-send intake worker and bounded GUI supervisor."""
 import json
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stdout
 import subprocess
 import sys
 import threading
@@ -182,6 +182,14 @@ class IntakeProcess:
 
 
 def worker():
+    # Reserve stdout exclusively for the supervisor protocol. wxauto prints
+    # account-bearing startup text; discard it via the worker's stderr sink.
+    output = sys.stdout
+    with redirect_stdout(sys.stderr):
+        _worker(output)
+
+
+def _worker(output):
     from .window_binding import Window
     from .child_input import ChildInputGuard
     from ..adapters.child_adapter import ChildWxAutoAdapter
@@ -192,7 +200,6 @@ def worker():
     from ..services.gallery_service import GalleryService
     from ..services.pending_add_service import PersistentPendingAddService
     stop = threading.Event()
-    output = sys.stdout
     output_lock = threading.Lock()
     def emit(state, **fields):
         with output_lock:
