@@ -9,7 +9,7 @@ from .adapters.base import Adapter, AdapterError
 from .models import MessageEvent
 from .services.command_parser import parse_command
 from .services.gallery_service import GalleryService
-from .services.pending_add_service import PendingAddService
+from .services.pending_add_service import PendingAddService, PersistentPendingAddService
 
 log = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ class GalleryBot:
                  clock: Callable[[], float] = time.monotonic):
         self.adapter = adapter
         self.gallery = gallery
-        self.pending = pending or PendingAddService(clock=clock)
+        self.pending = pending if pending is not None else PersistentPendingAddService(gallery.repository)
         self.clock = clock
         self._lock = threading.RLock()
         self._seen: OrderedDict[tuple[str, str], float] = OrderedDict()

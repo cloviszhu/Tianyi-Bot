@@ -14,7 +14,7 @@ from ..adapters.wxauto_adapter import WxAutoAdapter
 from ..app import GalleryBot
 from ..config import Config
 from ..services.gallery_service import GalleryService
-from ..services.pending_add_service import PendingAddService
+from ..services.pending_add_service import PersistentPendingAddService
 from ..storage.sqlite_repository import SQLiteRepository
 from .common import ManagementError, atomic_json
 
@@ -131,7 +131,7 @@ class GuestController:
         try:
             repository = SQLiteRepository(self.root / "bot.db")
             adapter = FakeAdapter() if self.backend.simulated else WxAutoAdapter(tuple(settings["groups"]), self.root / "downloads", settings["max_image_mb"] * 1024 * 1024)
-            bot = GalleryBot(adapter, GalleryService(repository, self.root / "images", settings["max_image_mb"] * 1024 * 1024), PendingAddService(settings["pending_seconds"]))
+            bot = GalleryBot(adapter, GalleryService(repository, self.root / "images", settings["max_image_mb"] * 1024 * 1024), PersistentPendingAddService(repository, settings["pending_seconds"]))
             def ready():
                 with self._lock:
                     if not self._stop.is_set():
