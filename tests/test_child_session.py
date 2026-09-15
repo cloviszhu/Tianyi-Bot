@@ -10,6 +10,17 @@ from wechat_gallery_bot.management.common import ManagementError
 
 
 class SessionLauncherTests(unittest.TestCase):
+    def test_query_failure_keeps_readonly_polling_but_cannot_logoff(self):
+        source = Path(child_session.__file__).with_name("ChildSessionHost.cs").read_text(encoding="utf-8")
+        check = source.split("void Check()",1)[1].split("async void EndTrial()",1)[0]
+        catch = check.split("catch(Exception ex)",1)[1]
+        self.assertIn("cycle.QueryFailed=true", catch)
+        self.assertNotIn("uncertain=true", catch)
+        for forbidden in ["ConnectPrepared", "Native.Enable", "WTSLogoffSession"]:
+            self.assertNotIn(forbidden, check)
+        self.assertLess(check.index('Record("connected")'), check.index("cycle.QueryFailed=false"))
+        self.assertIn("if(uncertain || cycle.QueryFailed)", source)
+
     def test_admin_build_has_manifest_and_distinct_cache_without_launch(self):
         normal = child_session.build_host()
         admin = child_session.build_host(require_admin=True)

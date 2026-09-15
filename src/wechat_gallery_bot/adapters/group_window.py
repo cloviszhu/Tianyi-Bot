@@ -16,11 +16,19 @@ def find_scoped_group(api, name, guard):
             handles.append(hwnd)
     win32gui.EnumWindows(collect, None)
     matches = []
+    diagnostic = []
     for hwnd in handles:
         control = uia.ControlFromHandle(hwnd)
+        cls = control.ClassName
+        if len(diagnostic) < 24:
+            # Fixed structural class labels only; never persist window names.
+            diagnostic.append({"class": cls if cls in {"mmui::MainWindow", "mmui::FramelessMainWindow", "mmui::ChatMessagePage"} else "other",
+                               "title_match": control.Name == name,
+                               "same_pid": control.ProcessId == api.pid})
         if (control.ProcessId == api.pid and control.ClassName == WeChatSubWnd._ui_cls_name
                 and control.Name == name):
             matches.append(hwnd)
+    api._tianyi_window_probe = diagnostic
     if len(matches) > 1:
         raise AdapterError("同进程存在多个同名群窗口。")
     if not matches:
@@ -73,4 +81,6 @@ def open_group_window(api, name, guard, open_session, *, clock=time.monotonic, s
         if existing is not None:
             return existing
         sleep(.1)
-    raise AdapterError("等待配置群独立窗口超时。")
+    error = AdapterError("等待配置群独立窗口超时。")
+    error.window_probe = getattr(api, "_tianyi_window_probe", [])
+    raise error

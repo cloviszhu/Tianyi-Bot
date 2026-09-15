@@ -12,14 +12,14 @@ using System.Drawing;
 using System.Threading.Tasks;
 
 class CycleState {
-    public bool Active, Uncertain, Transitioning;
+    public bool Active, Uncertain, Transitioning, QueryFailed;
     public uint? Owned;
     public bool CanPoll { get {return Active && !Transitioning && !Uncertain;} }
     public void ResetForStart() {
         if(Active) throw new InvalidOperationException("上轮尚未结束");
-        Uncertain=false; Owned=null;
+        Uncertain=false; QueryFailed=false; Owned=null;
     }
-    public void Complete() { Active=false; Uncertain=false; Owned=null; }
+    public void Complete() { Active=false; Uncertain=false; QueryFailed=false; Owned=null; }
     public bool EnterTransition() {if(Transitioning)return false;Transitioning=true;return true;}
     public void LeaveTransition() {Transitioning=false;}
 }
@@ -265,18 +265,27 @@ class TrialForm : Form {
             if(rdp.Connected==1 && current.HasValue) {
                 if(!owned.HasValue)owned=current;
                 Record("connected"); // Publish only after native child identity and RDP checks.
+                cycle.QueryFailed=false;
                 status.Text="RDP已连接；分身"+(viewer.Visible?"可见":"已隐藏")+"。\n请在分身内打开“分身内打开微信管理.vbs”连接小号；微信后台收发尚未验证。";
             } else if(!owned.HasValue && (DateTime.UtcNow-started).TotalSeconds>30) {
                 status.Text="连接超时；不自动重试。"; EndTrial();
             } else if(owned.HasValue) {Record("disconnected");status.Text="连接已断开；不会自动重连。请结束本次测试。";}
-        } catch(Exception) {uncertain=true;status.Text="状态查询失败，禁止自动恢复；请保留恢复记录。";Record("query_failed");}
+        } catch(Exception ex) {
+            // A failed read is not proof of changed ownership. Continue read-only
+            // polling, but publish no usable lease and forbid logoff until a
+            // full native identity + RDP isolation check succeeds again.
+            cycle.QueryFailed=true;
+            status.Text="状态查询失败，机器人已暂停；正在重查连接，不会重连、注销或修改系统。";
+            try {File.WriteAllText(Path.Combine(Path.GetDirectoryName(journal),"query-error.txt"),ErrorDetail(ex),Encoding.UTF8);} catch(Exception) {}
+            try {Record("query_failed");} catch(Exception) {}
+        }
         finally {checking=false;}
     }
     async void EndTrial() {
         if(!active || !cycle.EnterTransition()) return;
         timer.Stop();
         try {
-            if(uncertain) throw new InvalidOperationException("归属不确定，不能安全注销。恢复记录："+journal);
+            if(uncertain || cycle.QueryFailed) throw new InvalidOperationException("归属不确定，不能安全注销。恢复记录："+journal);
             uint? current=Native.Child();
             if(current.HasValue && current!=owned) throw new InvalidOperationException("出现未确认归属的子会话，不能注销。");
             if(owned.HasValue && current==owned) {
@@ -334,6 +343,11 @@ class TrialForm : Form {
                     if(state.CanPoll || state.EnterTransition())throw new Exception("start reentry allowed");
                     state.LeaveTransition(); state.Owned=round;
                     if(!state.CanPoll)throw new Exception("poll disabled after connection");
+                    state.QueryFailed=true;
+                    if(!state.CanPoll)throw new Exception("query failure must allow readonly recheck");
+                    state.Uncertain=true;
+                    if(state.CanPoll)throw new Exception("changed identity must stay blocked");
+                    state.Uncertain=false;state.QueryFailed=false;
                     if(!state.EnterTransition() || state.CanPoll || state.EnterTransition())throw new Exception("end reentry allowed");
                     state.Complete(); state.LeaveTransition();
                     if(state.Active || state.Uncertain || state.Owned.HasValue || state.CanPoll)throw new Exception("dirty completion");

@@ -9,6 +9,21 @@ from wechat_gallery_bot.management.child_intake import issue_message, failure_re
 
 
 class IntakeIssuesTests(unittest.TestCase):
+    def test_window_probe_is_bounded_and_excludes_names_and_paths(self):
+        error = RuntimeError("secret")
+        error.window_probe = [{"class": "mmui::MainWindow", "title_match": True,
+                               "same_pid": True, "name": "private account", "path": "secret"}] * 40
+        result = failure_record("group_listener", error)
+        self.assertEqual(len(result["window_probe"]), 24)
+        self.assertEqual(result["window_probe"][0], {"class": "mmui::MainWindow", "title_match": True, "same_pid": True})
+        self.assertNotIn("private", str(result))
+        self.assertNotIn("secret", str(result))
+
+    def test_unknown_window_classes_are_not_copied_from_exception(self):
+        error = RuntimeError()
+        error.window_probe = [{"class": "private-account", "title_match": True}, "secret"]
+        self.assertNotIn("window_probe", failure_record("group_listener", error))
+
     def test_code_coordinates_exclude_locals_source_and_absolute_paths(self):
         space = {"__name__": "wxauto4.ui.session"}
         exec(compile("def fail():\n    private_account = 'secret'\n    raise Exception(private_account)\n", "C:/private/user/source.py", "exec"), space)

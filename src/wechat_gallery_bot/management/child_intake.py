@@ -39,11 +39,18 @@ def failure_record(stage, exc):
     from .child_input import GUARD_STEPS
     kinds, visited, locations = [], set(), []
     guard_step = None
+    window_probe = []
     while exc is not None and id(exc) not in visited and len(kinds) < 5:
         candidate = getattr(exc, "guard_step", None)
         if isinstance(candidate, str) and candidate in GUARD_STEPS:
             guard_step = candidate
         visited.add(id(exc))
+        probe = getattr(exc, "window_probe", None)
+        if isinstance(probe, list):
+            for item in probe[:24]:
+                if isinstance(item, dict) and item.get("class") in {"mmui::MainWindow", "mmui::FramelessMainWindow", "mmui::ChatMessagePage", "other"}:
+                    window_probe.append({"class": item["class"], "title_match": item.get("title_match") is True,
+                                         "same_pid": item.get("same_pid") is True})
         locations.extend(code_locations(exc.__traceback__))
         name = type(exc).__name__
         kinds.append(name if name in {"ManagementError", "AdapterError", "ValueError",
@@ -56,6 +63,8 @@ def failure_record(stage, exc):
         record["guard_step"] = guard_step
     if locations:
         record["locations"] = locations[-24:]
+    if window_probe:
+        record["window_probe"] = window_probe[:24]
     return record
 
 
