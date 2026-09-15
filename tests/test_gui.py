@@ -1,5 +1,6 @@
 """Real Tk widgets + real loopback TLS; WeChat is explicitly simulated."""
 import tempfile
+import threading
 import time
 import tkinter as tk
 import unittest
@@ -102,6 +103,28 @@ class DesktopTests(unittest.TestCase):
         self.assertIsNone(self.gui.latest)
         self.assertIn("未知", self.gui.account_status.get())
         self.assertEqual(str(self.gui.start_button["state"]), "disabled")
+
+    def test_close_during_request_does_not_wait_or_retain_gui_callback(self):
+        from unittest.mock import Mock
+        entered, release = threading.Event(), threading.Event()
+        callback = Mock()
+        def request():
+            entered.set()
+            release.wait(3)
+            return {"complete": True}
+        self.gui.submit(request, callback)
+        self.assertTrue(entered.wait(1))
+        try:
+            started = time.monotonic()
+            self.gui.close()
+            self.assertLess(time.monotonic() - started, .5)
+            self.assertIsNone(self.gui.pending_callback)
+            self.assertIsNone(self.gui.banner)
+            callback.assert_not_called()
+        finally:
+            release.set()
+            self.gui.executor.shutdown(wait=True)
+        callback.assert_not_called()
 
 
 if __name__ == "__main__":

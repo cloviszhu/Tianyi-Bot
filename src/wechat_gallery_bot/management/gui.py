@@ -4,6 +4,7 @@ import queue
 import time
 import tkinter as tk
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from urllib.parse import urlencode
@@ -18,12 +19,21 @@ STATES = {"stopped": "已停止", "starting": "正在启动", "running": "运行
 CONNECTIONS = {"not_connected": "未连接微信", "no_window": "未发现微信窗口", "window_detected": "已发现窗口，待人工核对小号", "manually_confirmed": "小号已人工确认", "lost": "连接已失效"}
 
 
+def _request_work(results, function):
+    # No Tk objects or GUI-bound callbacks may cross into the executor.
+    try:
+        results.put((function(), None))
+    except Exception as exc:
+        results.put((None, str(exc) if isinstance(exc, ManagementError) else "操作失败，请刷新状态后重试。"))
+
+
 class ManagerWindow:
     def __init__(self, root: tk.Tk, client=None, profile_path=None):
         self.root, self.client = root, client
         self.profile_path = profile_path or app_home() / "host-connection.json"
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="manager-http")
         self.results = queue.Queue()
+        self.pending_callback = None
         self.busy = False
         self.closed = False
         self.latest = None
@@ -162,18 +172,15 @@ class ManagerWindow:
             return
         self.busy = True
         self._buttons()
-        def work():
-            try:
-                self.results.put((callback, function(), None))
-            except Exception as exc:
-                self.results.put((callback, None, str(exc) if isinstance(exc, ManagementError) else "操作失败，请刷新状态后重试。"))
-        self.executor.submit(work)
+        self.pending_callback = callback
+        self.executor.submit(_request_work, self.results, function)
 
     def _drain(self):
         if self.closed:
             return
         try:
-            callback, result, error = self.results.get_nowait()
+            result, error = self.results.get_nowait()
+            callback, self.pending_callback = self.pending_callback, None
             self.busy = False
             if error:
                 self.online = False
@@ -205,7 +212,7 @@ class ManagerWindow:
 
     def refresh(self):
         if self.client:
-            self.submit(lambda: self.client.request("GET", "/status"), self.show_status)
+            self.submit(partial(self.client.request, "GET", "/status"), self.show_status)
         else:
             self.note.set("请先导入虚拟机服务窗口导出的连接文件。")
 
@@ -232,7 +239,7 @@ class ManagerWindow:
 
     def action(self, path, data):
         if self.client:
-            self.submit(lambda: self.client.request("POST", path, data), self.show_status)
+            self.submit(partial(self.client.request, "POST", path, data), self.show_status)
 
     def bind(self):
         index = self.windows.current()
@@ -258,7 +265,7 @@ class ManagerWindow:
 
     def refresh_galleries(self):
         if self.client:
-            self.submit(lambda: self.client.request("GET", "/galleries"), self.show_galleries)
+            self.submit(partial(self.client.request, "GET", "/galleries"), self.show_galleries)
 
     def show_galleries(self, data):
         for row in self.gallery_tree.get_children():
@@ -275,7 +282,7 @@ class ManagerWindow:
             return
         item = self.gallery_rows[selected[0]]
         query = urlencode({"namespace": item["namespace"], "keyword": item["keyword"]})
-        self.submit(lambda: self.client.request("GET", "/images?" + query), self.show_images)
+        self.submit(partial(self.client.request, "GET", "/images?" + query), self.show_images)
 
     def show_images(self, data):
         self.image_ids = [item["id"] for item in data["items"]]
@@ -288,7 +295,7 @@ class ManagerWindow:
         index = self.image_picker.current()
         if self.client and index >= 0:
             image_id = self.image_ids[index]
-            self.submit(lambda: self.client.request("GET", f"/thumbnail/{image_id}"), self.show_image)
+            self.submit(partial(self.client.request, "GET", f"/thumbnail/{image_id}"), self.show_image)
 
     def show_image(self, payload):
         with Image.open(io.BytesIO(payload)) as image:
@@ -304,8 +311,18 @@ class ManagerWindow:
             messagebox.showinfo("虚拟机控制台", str(exc))
 
     def close(self):
+        if self.closed:
+            return
         self.closed = True
+        self.pending_callback = None
         self.executor.shutdown(wait=False, cancel_futures=True)
+        # Dispose Tk resources on their owning thread, including when a request
+        # is still running. Do not wait for networking from the GUI thread.
+        for name in ("endpoint", "banner", "account_status", "note", "account_label",
+                     "confirmed", "timeout", "limit", "preview_image"):
+            setattr(self, name, None)
+        for timer in self.root.tk.splitlist(self.root.tk.call("after", "info")):
+            self.root.after_cancel(timer)
         self.root.destroy()  # Deliberately no POST /stop.
 
 

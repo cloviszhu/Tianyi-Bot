@@ -7,6 +7,17 @@ from ..management.child_input import ChildInputGuard
 
 
 class ChildWxAutoAdapter(WxAutoAdapter):
+    def _prepare_client(self, wx):
+        from wxauto4 import uia
+        from wxauto4.param import WxResponse
+        from .group_window import open_exact_session
+        session = wx._api._session_api
+        def open_group(name):
+            result = open_exact_session(session, name, self._before_input, uia.IsElementInWindow)
+            return WxResponse.success(data={"nickname": result})
+        # Per-client instance only. Never modify installed upstream files.
+        session.open_separate_window = open_group
+
     def _event_id(self, message):
         # Upstream id is UIA runtimeid, not a server message identifier. Scope it
         # to the WeChat process incarnation, stable across bot-worker restarts.

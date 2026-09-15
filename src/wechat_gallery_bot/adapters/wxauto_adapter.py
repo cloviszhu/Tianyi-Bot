@@ -64,6 +64,9 @@ class WxAutoAdapter:
         if self.on_stage is not None:
             self.on_stage(code)
 
+    def _prepare_client(self, wx):
+        pass
+
     def _report_issue(self, code):
         # Only fixed codes cross the worker channel: never backend exception
         # strings, account names, message bodies or filesystem paths.
@@ -225,6 +228,7 @@ class WxAutoAdapter:
                 self._stage("wechat_constructor")
                 with contextlib.redirect_stdout(io.StringIO()):
                     wx = package.WeChat(debug=False, **({"hwnd": hwnd} if hwnd is not None else {}))
+                self._prepare_client(wx)
                 try:
                     for group in sorted(self.groups):
                         self._stage("group_listener")
