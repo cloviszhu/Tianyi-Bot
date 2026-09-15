@@ -31,6 +31,9 @@ class DesktopTests(unittest.TestCase):
         if not self.gui.closed:
             self.gui.close()
         self.session.close()
+        self.gui.executor.shutdown(wait=True)
+        self.gui = self.root = None
+        __import__("gc").collect()
         self.tmp.cleanup()
 
     def pump(self, predicate, seconds=6):

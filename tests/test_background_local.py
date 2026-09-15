@@ -197,6 +197,9 @@ class OperationsGuiTests(unittest.TestCase):
     def cleanup(self):
         self.pump(lambda: not self.gui.busy)
         self.gui.close()
+        self.gui.executor.shutdown(wait=True)
+        self.gui = self.root = None
+        __import__("gc").collect()  # Finalize destroyed Tcl interpreters on the Tk thread.
         self.tmp.cleanup()
 
     def pump(self, predicate):

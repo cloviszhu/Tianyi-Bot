@@ -187,6 +187,9 @@ class DraftGuiTests(unittest.TestCase):
     def cleanup(self):
         self.pump()
         self.gui.close()
+        self.gui.executor.shutdown(wait=True)
+        self.gui = self.root = None
+        __import__("gc").collect()  # The binding callback also captures this test instance.
         self.tmp.cleanup()
 
     def pump(self):

@@ -544,4 +544,9 @@ class LocalOperationsWindow:
         for timer in self.timers:
             self.root.after_cancel(timer)
         self.timers.clear()
+        # Tk variables and images must be finalized on the creating thread,
+        # even when Python later collects the closed window on a worker.
+        for name, value in list(vars(self).items()):
+            if isinstance(value, (tk.Variable, ImageTk.PhotoImage)):
+                setattr(self, name, None)
         self.root.destroy()

@@ -2,9 +2,18 @@
 import queue
 import tkinter as tk
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from tkinter import ttk
 
 from .window_binding import BindingService
+
+
+def _binding_work(results, service, operation):
+    try:
+        results.put((operation(), None))
+    except Exception:
+        service.unbind()
+        results.put((None, "识别或核验未通过，绑定已取消。请展开微信、解锁桌面并重新识别；同一进程多个主窗口不支持绑定。"))
 
 
 class LocalBindingWindow:
@@ -22,6 +31,7 @@ class LocalBindingWindow:
         self.trial_active = False
         self.executor = ThreadPoolExecutor(max_workers=1)
         self.results = queue.Queue()
+        self.pending_done = None
         root.title("天意Bot 0.6.11 · 分身微信管理" if child_mode else "天意Bot · 本机窗口绑定")
         root.geometry("880x560")
         root.minsize(880, 560)
@@ -85,19 +95,15 @@ class LocalBindingWindow:
             return
         self.busy = True
         self.controls()
-        def work():
-            try:
-                self.results.put((done, operation(), None))
-            except Exception:
-                self.service.unbind()
-                self.results.put((done, None, "识别或核验未通过，绑定已取消。请展开微信、解锁桌面并重新识别；同一进程多个主窗口不支持绑定。"))
-        self.executor.submit(work)
+        self.pending_done = done
+        self.executor.submit(_binding_work, self.results, self.service, operation)
 
     def drain(self):
         if self.closed:
             return
         try:
-            done, value, error = self.results.get_nowait()
+            value, error = self.results.get_nowait()
+            done, self.pending_done = self.pending_done, None
             self.busy = False
             if error:
                 self.bound = None
@@ -124,7 +130,7 @@ class LocalBindingWindow:
                     self.status.set("请在分身内登录微信，然后点“重新连接微信”。" if not self.rows else "发现多个微信窗口，未连接；请关闭多余窗口后重新连接。")
                     return
                 generation, key = self.generation, self.rows[0].key
-                self.submit(lambda: self.service.bind(generation, key, True), self.show_bound)
+                self.submit(partial(self.service.bind, generation, key, True), self.show_bound)
                 return
             self.windows.configure(values=[f"窗口 {i+1}  ·  HWND {w.hwnd:#x}  ·  PID {w.pid}" + ("  ·  已最小化" if w.minimized else "") for i, w in enumerate(self.rows)])
             self.status.set(f"找到 {len(self.rows)} 个主窗口，尚未选择。请手动核对；不会默认选择第一个。" if self.rows else "没有找到支持识别的微信主窗口。请确认已登录并展开窗口；新版本结构也可能不受支持。")
@@ -176,7 +182,7 @@ class LocalBindingWindow:
             self.status.set("请先选择窗口，并勾选人工核对小号。")
             return
         generation, key = self.generation, self.rows[index].key
-        self.submit(lambda: self.service.bind(generation, key, True), self.show_bound)
+        self.submit(partial(self.service.bind, generation, key, True), self.show_bound)
 
     def show_bound(self, window):
         self.bound = window
@@ -198,6 +204,8 @@ class LocalBindingWindow:
         self.root.after(2000, self.poll)
 
     def close(self):
+        if self.closed:
+            return
         if self.operations and not self.operations.closed:
             self.operations.close()
             if not self.operations.closed:
@@ -205,7 +213,10 @@ class LocalBindingWindow:
                 return
         self.closed = True
         self.bound = None
+        self.pending_done = None
         self.executor.shutdown(wait=False, cancel_futures=True)
+        self.confirmed = None
+        self.status = None
         self.root.destroy()
 
     def open_operations(self):

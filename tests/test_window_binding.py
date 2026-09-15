@@ -111,7 +111,13 @@ class LocalGuiTests(unittest.TestCase):
         self.root = tk.Tk()
         self.root.withdraw()
         self.gui = LocalBindingWindow(self.root, BindingService(self.provider))
-        self.addCleanup(self.gui.close)
+        self.addCleanup(self.cleanup)
+
+    def cleanup(self):
+        self.gui.close()
+        self.gui.executor.shutdown(wait=True)
+        self.gui = self.root = None
+        __import__("gc").collect()
 
     def pump(self):
         end = time.monotonic() + 3
