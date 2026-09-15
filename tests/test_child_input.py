@@ -1,6 +1,7 @@
 import tempfile
 import threading
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -23,7 +24,10 @@ class ChildInputTests(unittest.TestCase):
             EnumWindows=lambda fn, arg: fn(50, arg))
         self.modules = {"win32gui": self.gui,
             "win32process": SimpleNamespace(GetWindowThreadProcessId=lambda h: (1, 60)),
-            "psutil": SimpleNamespace(Process=lambda p: SimpleNamespace(create_time=lambda: 1.0, exe=lambda: "C:/Weixin.exe"))}
+            "psutil": SimpleNamespace(Process=lambda p: SimpleNamespace(create_time=lambda: 1.0, exe=lambda: "C:/Weixin.exe"),
+                                      NoSuchProcess=ProcessLookupError, AccessDenied=PermissionError),
+            "uiautomation": SimpleNamespace(UIAutomationInitializerInThread=nullcontext,
+                ControlFromHandle=lambda h: SimpleNamespace(ClassName="mmui::MainWindow", ProcessId=60))}
         self.context = Mock(return_value=4)
         self.session = Mock(return_value=4)
         for p in (patch.dict("sys.modules", self.modules),
@@ -39,6 +43,18 @@ class ChildInputTests(unittest.TestCase):
         self.assertEqual(self.context.call_count, 2)
         self.context.assert_called_with(input_enabled=True)
 
+    def test_native_qt_class_may_differ_from_uia_class(self):
+        self.gui.GetClassName = Mock(side_effect=AssertionError("native class is not UIA class"))
+        self.guard()
+        self.gui.GetClassName.assert_not_called()
+
+    def test_uia_wrong_class_or_process_blocks_input(self):
+        for cls, pid in (("other", 60), ("mmui::MainWindow", 99)):
+            self.stop.clear()
+            self.modules["uiautomation"].ControlFromHandle = lambda h: SimpleNamespace(ClassName=cls, ProcessId=pid)
+            with self.assertRaises(ManagementError):
+                self.guard()
+
     def test_host_or_session_change_permanently_stops(self):
         self.guard()
         self.context.return_value = 5
@@ -51,8 +67,9 @@ class ChildInputTests(unittest.TestCase):
 
     def test_other_session_window_rejected(self):
         self.session.return_value = 1
-        with self.assertRaises(ManagementError):
+        with self.assertRaises(ManagementError) as failure:
             self.guard()
+        self.assertEqual(failure.exception.guard_step, "process")
 
     def test_multiple_windows_and_minimized_rejected(self):
         for multiple in (True, False):

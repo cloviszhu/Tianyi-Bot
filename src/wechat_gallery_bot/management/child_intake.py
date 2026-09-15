@@ -23,8 +23,13 @@ STARTUP_STAGES = {
 def failure_record(stage, exc):
     # Exception messages/tracebacks may contain chats and paths. Keep only
     # allowlisted type labels, never arbitrary class names or repr/str(exc).
+    from .child_input import GUARD_STEPS
     kinds, visited = [], set()
+    guard_step = None
     while exc is not None and id(exc) not in visited and len(kinds) < 5:
+        candidate = getattr(exc, "guard_step", None)
+        if isinstance(candidate, str) and candidate in GUARD_STEPS:
+            guard_step = candidate
         visited.add(id(exc))
         name = type(exc).__name__
         kinds.append(name if name in {"ManagementError", "AdapterError", "ValueError",
@@ -32,12 +37,17 @@ def failure_record(stage, exc):
             "PermissionError", "FileNotFoundError", "OSError", "RuntimeError",
             "OperationalError", "COMError", "TimeoutError"} else "Exception")
         exc = exc.__cause__ or (None if exc.__suppress_context__ else exc.__context__)
-    return {"stage": stage if stage in STARTUP_STAGES else "request", "kinds": kinds}
+    record = {"stage": stage if stage in STARTUP_STAGES else "request", "kinds": kinds}
+    if guard_step is not None:
+        record["guard_step"] = guard_step
+    return record
 
 
 def failure_message(record):
+    from .child_input import GUARD_STEPS
+    detail = GUARD_STEPS.get(record.get("guard_step"))
     return "运行失败：%s；错误类型 %s。未自动重试，具体收发结果需核对。" % (
-        STARTUP_STAGES.get(record.get("stage"), "未知步骤"),
+        STARTUP_STAGES.get(record.get("stage"), "未知步骤") + (" / " + detail if detail else ""),
         " → ".join(record.get("kinds", [])) or "未知")
 
 ISSUE_LABELS = {
