@@ -7,6 +7,23 @@ from ..management.child_input import ChildInputGuard
 
 
 class ChildWxAutoAdapter(WxAutoAdapter):
+    def _check_chat(self, chat):
+        try:
+            return super()._check_chat(chat)
+        except AdapterError:
+            # The pinned fork hardcodes full AutomationIds in ChatInfo.
+            # Reuse the bounded suffix-based structural locator on 4.1.
+            from ..management.group_listener import locate_controls
+            self._before_input()
+            root = chat._api.control
+            title, count, listing = locate_controls(root)
+            name = title.Name
+            if (name not in self.groups or chat.who != name or root.Name != name
+                    or root.ProcessId != chat._api.parent.pid
+                    or not all(c.Exists(0) for c in (title, count, listing))):
+                raise AdapterError("群窗口结构与配置不匹配。")
+            return name
+
     def _prepare_client(self, wx):
         from wxauto4 import uia
         from wxauto4.param import WxResponse

@@ -6,6 +6,41 @@ from wechat_gallery_bot.adapters.base import AdapterError
 
 
 class GroupWindowTests(unittest.TestCase):
+    def test_child_chat_info_fallback_requires_exact_group_and_structure(self):
+        from wechat_gallery_bot.adapters.child_adapter import ChildWxAutoAdapter
+        adapter = object.__new__(ChildWxAutoAdapter)
+        adapter.groups = {"group"}
+        adapter._before_input = Mock()
+        title = Mock(Name="group")
+        title.Name = "group"
+        chat = SimpleNamespace(ChatInfo=lambda: {"chat_type": "friend"}, who="group",
+            _api=SimpleNamespace(control=SimpleNamespace(Name="group", ProcessId=7), parent=SimpleNamespace(pid=7)))
+        with patch("wechat_gallery_bot.management.group_listener.locate_controls", return_value=(title, Mock(), Mock())):
+            self.assertEqual(adapter._check_chat(chat), "group")
+            chat.who = "different"
+            with self.assertRaises(AdapterError):
+                adapter._check_chat(chat)
+
+    def test_new_top_level_class_requires_chat_structure(self):
+        from wechat_gallery_bot.adapters.group_window import find_scoped_group
+        constructor = Mock(return_value=SimpleNamespace(pid=7, nickname="group"))
+        constructor._ui_cls_name = "mmui::FramelessMainWindow"
+        page = Mock()
+        control = SimpleNamespace(ProcessId=7, ClassName="new_class", Name="group", GroupControl=Mock(return_value=page))
+        modules = {"win32gui": SimpleNamespace(EnumWindows=lambda fn, arg: fn(11, arg)),
+            "win32process": SimpleNamespace(GetWindowThreadProcessId=lambda h: (1, 7)),
+            "wxauto4": SimpleNamespace(uia=SimpleNamespace(ControlFromHandle=lambda h: control)),
+            "wxauto4.ui.main": SimpleNamespace(WeChatSubWnd=constructor)}
+        with patch.dict("sys.modules", modules):
+            page.Exists.return_value = False
+            self.assertIsNone(find_scoped_group(SimpleNamespace(pid=7), "group", Mock()))
+            constructor.assert_not_called()
+            page.Exists.return_value = True
+            page.CustomControl.return_value.Exists.return_value = False
+            self.assertIsNone(find_scoped_group(SimpleNamespace(pid=7), "group", Mock()))
+            page.CustomControl.return_value.Exists.return_value = True
+            self.assertEqual(find_scoped_group(SimpleNamespace(pid=7), "group", Mock()).pid, 7)
+
     def test_scoped_lookup_ignores_native_qt_version_and_other_processes(self):
         from wechat_gallery_bot.adapters.group_window import find_scoped_group
         selected = SimpleNamespace(pid=7, nickname="group")

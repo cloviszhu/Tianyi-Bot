@@ -24,18 +24,27 @@ def process_session(pid):
     return value.value
 
 
+LEASE_REASONS = {"record", "phase", "session", "console", "timestamp", "expired", "isolation"}
+
+
 def validate_context(record, current, console, now=None):
+    reason = "record"
     try:
         child = int(record["owned_session"])
         parent = int(record["parent_session"])
         age = (time.time() if now is None else now) - float(record["published_unix"])
-        if (record["phase"] != "connected" or current != child or current == parent
-                or current == console or parent != console or child <= 0
-                or not math.isfinite(age) or age < 0 or age > 8):
-            raise ValueError()
+        for invalid, code in ((record["phase"] != "connected", "phase"),
+                (current != child or current == parent or child <= 0, "session"),
+                (current == console or parent != console, "console"),
+                (not math.isfinite(age) or age < 0, "timestamp"), (age > 8, "expired")):
+            if invalid:
+                reason = code
+                raise ValueError()
         return child
     except (KeyError, ValueError, TypeError):
-        raise ManagementError("请在已连接的分身内打开此入口；主机或未知会话禁止连接微信。") from None
+        error = ManagementError("请在已连接的分身内打开此入口；主机或未知会话禁止连接微信。")
+        error.lease_reason = reason
+        raise error from None
 
 
 def require_child_context(*, input_enabled=False):
@@ -49,7 +58,9 @@ def require_child_context(*, input_enabled=False):
             raise ValueError()
         record = dict(pairs)
         if input_enabled and record.get("input_isolation") != "verified-v1":
-            raise ManagementError("控制器尚未发布输入隔离检查结果，请正常结束分身后使用新版控制器。")
+            error = ManagementError("控制器尚未发布输入隔离检查结果。")
+            error.lease_reason = "isolation"
+            raise error
         stage = "检查主机发布状态（需要0.6.3控制器）"
         if "published_unix" not in record:
             raise ValueError()
@@ -61,7 +72,9 @@ def require_child_context(*, input_enabled=False):
     except Exception as exc:
         code = getattr(exc, "winerror", None)
         suffix = f"，系统错误码 {code}" if isinstance(code, int) else ""
-        raise ManagementError(f"连接检查未通过：{stage}（{type(exc).__name__}{suffix}）。未连接微信；不代表控制器已经退出。") from None
+        error = ManagementError(f"连接检查未通过：{stage}（{type(exc).__name__}{suffix}）。未连接微信；不代表控制器已经退出。")
+        error.lease_reason = getattr(exc, "lease_reason", "record")
+        raise error from None
 
 
 class ChildProvider(NativeProvider):

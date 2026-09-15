@@ -6,6 +6,15 @@ from wechat_gallery_bot.management.common import ManagementError
 
 
 class ChildBindingTests(unittest.TestCase):
+    def test_rejection_has_specific_bounded_reason(self):
+        cases = [(dict(self.record, published_unix="80"), 8, 6, "expired"),
+                 (self.record, 8, 7, "console"), (self.record, 9, 6, "session"),
+                 (dict(self.record, phase="ending"), 8, 6, "phase")]
+        for record, current, console, reason in cases:
+            with self.assertRaises(ManagementError) as failure:
+                validate_context(record, current, console, now=100)
+            self.assertEqual(failure.exception.lease_reason, reason)
+
     def test_no_cross_session_process_open(self):
         import inspect
         from wechat_gallery_bot.management import child_binding

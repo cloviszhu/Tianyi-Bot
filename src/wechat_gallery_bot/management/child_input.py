@@ -78,8 +78,12 @@ class ChildInputGuard:
             if require_child_context(input_enabled=True) != session or self.stop.is_set():
                 raise ManagementError("分身连接已失效。")
             self.session = session
-        except Exception:
+        except Exception as cause:
             self.stop.set()
             error = ManagementError("分身输入隔离检查失败，已停止；不会转到主机操作。")
             error.guard_step = stage
+            from .child_binding import LEASE_REASONS
+            reason = getattr(cause, "lease_reason", None)
+            if reason in LEASE_REASONS:
+                error.lease_reason = reason
             raise error from None

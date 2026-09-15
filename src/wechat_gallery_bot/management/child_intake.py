@@ -39,9 +39,14 @@ def failure_record(stage, exc):
     from .child_input import GUARD_STEPS
     kinds, visited, locations = [], set(), []
     guard_step = None
+    lease_reason = None
     window_probe = []
     while exc is not None and id(exc) not in visited and len(kinds) < 5:
         candidate = getattr(exc, "guard_step", None)
+        from .child_binding import LEASE_REASONS
+        reason = getattr(exc, "lease_reason", None)
+        if isinstance(reason, str) and reason in LEASE_REASONS:
+            lease_reason = reason
         if isinstance(candidate, str) and candidate in GUARD_STEPS:
             guard_step = candidate
         visited.add(id(exc))
@@ -61,6 +66,8 @@ def failure_record(stage, exc):
     record = {"stage": stage if stage in STARTUP_STAGES else "request", "kinds": kinds}
     if guard_step is not None:
         record["guard_step"] = guard_step
+    if lease_reason is not None:
+        record["lease_reason"] = lease_reason
     if locations:
         record["locations"] = locations[-24:]
     if window_probe:

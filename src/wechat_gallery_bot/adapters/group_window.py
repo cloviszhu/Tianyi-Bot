@@ -25,9 +25,16 @@ def find_scoped_group(api, name, guard):
             diagnostic.append({"class": cls if cls in {"mmui::MainWindow", "mmui::FramelessMainWindow", "mmui::ChatMessagePage"} else "other",
                                "title_match": control.Name == name,
                                "same_pid": control.ProcessId == api.pid})
-        if (control.ProcessId == api.pid and control.ClassName == WeChatSubWnd._ui_cls_name
-                and control.Name == name):
-            matches.append(hwnd)
+        if control.ProcessId == api.pid and control.Name == name:
+            compatible = cls == WeChatSubWnd._ui_cls_name
+            if not compatible and cls != "mmui::MainWindow":
+                # 4.1 may use a different top-level class. Verify the exact
+                # subtree consumed by WeChatSubWnd, not just a matching title.
+                page = control.GroupControl(ClassName="mmui::ChatMessagePage", searchDepth=8)
+                compatible = page.Exists(0) and page.CustomControl(
+                    ClassName="mmui::XSplitterView", searchDepth=4).Exists(0)
+            if compatible:
+                matches.append(hwnd)
     api._tianyi_window_probe = diagnostic
     if len(matches) > 1:
         raise AdapterError("同进程存在多个同名群窗口。")
