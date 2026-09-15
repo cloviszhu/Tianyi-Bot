@@ -56,6 +56,24 @@ class ChildControlTests(unittest.TestCase):
         self.assertEqual(self.request("POST", "/start_receive", body='{"send":true}')[0], 400)
         self.dispatch.assert_not_called()
 
+    def test_stop_remains_available_after_context_loss(self):
+        failed = Mock(side_effect=RuntimeError("private detail"))
+        self.pump(failed)
+        self.assertEqual(self.request("POST", "/start_receive")[0], 409)
+        self.assertEqual(self.request("POST", "/stop")[0], 202)
+        self.pump(failed)
+        self.dispatch.assert_called_once_with("stop")
+
+    def test_invalid_context_cannot_report_ready_or_hide_under_old_error(self):
+        self.control.pump(Mock(side_effect=RuntimeError("secret")), self.dispatch,
+                          lambda: {"available": True, "ready": True, "summary": "old worker error"})
+        data = self.request("GET", "/status")[1]
+        self.assertFalse(data["available"])
+        self.assertFalse(data["ready"])
+        self.assertEqual(data["worker_summary"], "old worker error")
+        self.assertIn("控制器", data["summary"])
+        self.assertNotIn("secret", str(data))
+
     def test_context_loss_rejects_pending_command(self):
         self.request("POST", "/start_receive")
         self.pump(Mock(side_effect=RuntimeError("private detail")))

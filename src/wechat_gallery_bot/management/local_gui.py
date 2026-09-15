@@ -32,7 +32,7 @@ class LocalBindingWindow:
         self.executor = ThreadPoolExecutor(max_workers=1)
         self.results = queue.Queue()
         self.pending_done = None
-        root.title("天意Bot 0.7.0 · 分身微信管理" if child_mode else "天意Bot · 本机窗口绑定")
+        root.title("天意Bot 0.7.1 · 分身微信管理" if child_mode else "天意Bot · 本机窗口绑定")
         root.geometry("880x560")
         root.minsize(880, 560)
         root.protocol("WM_DELETE_WINDOW", self.close)

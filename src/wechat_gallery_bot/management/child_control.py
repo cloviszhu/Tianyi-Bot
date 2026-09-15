@@ -71,7 +71,7 @@ class ChildControl:
                 if raw_path != "/" + action or action not in owner.COMMANDS:
                     return self.reply(404, {"error": "unknown_route"})
                 with owner.lock:
-                    if owner.closed or time.monotonic() - owner.updated >= 3 or not owner.snapshot.get("available"):
+                    if owner.closed or time.monotonic() - owner.updated >= 3 or (action != "stop" and not owner.snapshot.get("available")):
                         return self.reply(409, {"error": "unavailable"})
                     if owner.command and owner.command["state"] == "pending":
                         return self.reply(409, {"error": "busy"})
@@ -98,7 +98,7 @@ class ChildControl:
             pass
         else:
             state = "rejected"
-            if available and time.monotonic() - created <= 3:
+            if (available or action == "stop") and time.monotonic() - created <= 3:
                 try:
                     # Dispatch result means requested, NOT worker-ready or sent.
                     state = "requested" if dispatch(action) else "rejected"
@@ -107,7 +107,11 @@ class ChildControl:
             with self.lock:
                 self.command = {"id": ticket, "action": action, "state": state}
         with self.lock:
-            self.snapshot = {"available": available, **snapshot()}
+            self.snapshot = {**snapshot(), "available": available}
+            if not available:
+                self.snapshot["ready"] = False
+                self.snapshot["worker_summary"] = self.snapshot.get("summary", "")
+                self.snapshot["summary"] = "分身控制器连接检查未通过，不能启动微信操作；可停止现有工作进程。"
             self.updated = time.monotonic()
 
     def close(self):
@@ -174,6 +178,13 @@ def attach_control(window):
         if window.closed:
             return
         control.pump(lambda: require_child_context(input_enabled=True), dispatch, snapshot)
+        if not control.snapshot.get("available"):
+            ops = window.operations
+            if ops and not ops.closed and ops.intake.active:
+                ops.intake.stop()
+            status = getattr(window, "status", None)
+            if status is not None:
+                status.set("分身控制器连接检查未通过；机器人已请求停止。微信和分身不会被关闭。")
         window.root.after(250, tick)
     tick()
 
